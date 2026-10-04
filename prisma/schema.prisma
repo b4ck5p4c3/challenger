@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Item {
+  @@map("items")
+
+  id String @id @default(uuid())
+  ean13 String @unique()
+  brand String
+  name String
+  volume Decimal @db.Decimal(10, 4)
+  caffeine Decimal @db.Decimal(10, 4)
+  alcohol Decimal @db.Decimal(10, 4)
+  filled Boolean @default(false)
+  scannedItems ScannedItem[]
+  edadealData Json? @db.JsonB
+  crptEanData Json? @db.JsonB
+}
+
+model ScannedItem {
+  @@map("scanned_items")
+  
+  id String @id @default(uuid())
+  crptLabelId String? @unique()
+  createdAt DateTime @default(now())
+  itemId String
+  item Item @relation(fields: [itemId], references: [id])
+  crptLabelData Json? @db.JsonB
+}

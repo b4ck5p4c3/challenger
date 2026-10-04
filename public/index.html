@@ -1,0 +1,108 @@
+<html>
+  <head>
+    <title>Challenger</title>
+    <style>
+      html {
+        background-color: black;
+        color: white;
+      }
+
+      * {
+        font-family: monospace;
+      }
+      
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .flex-row {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+      }
+
+      .menu {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+      }
+
+      .menu > a {
+        color: white;
+      }
+
+      table {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="flex-row">
+        <h2>Challenger</h2>
+        <div class="menu">
+          <a href="/#items">Items</a>
+          <a href="/#history">History</a>
+        </div>
+      </div>
+      <hr>
+    </header>
+    <main>
+      <div id="items-pane">
+        <h3>History</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Item</th>
+              <th>EAN13</th>
+              <th>Honest sign ID</th>
+            </tr>
+          </thead>
+          <tbody>
+
+          </tbody>
+        </table>
+      </div>
+      <div hidden id="history-pane">
+        
+      </div>
+      <div hidden id="edit-item-pane">
+
+      </div>
+    </main>
+    <script>
+      (() => {
+        let currentItemId = undefined
+
+        document.addEventListener('DOMContentLoaded', () => {
+          location.hash = 'items'
+        })
+
+        document.addEventListener('hashchange', () => {
+          const [ page, arg ] = location.hash.split('/')
+          switch (page) {
+            case 'items': {
+              if (arg) {
+                currentItemId = arg
+                showPane('item-edit')
+              } else {
+                showPane('items')
+              }
+              break
+            }
+            case 'history': {
+              
+            }
+          }
+        })
+      })()
+    </script>
+  </body>
+</html>

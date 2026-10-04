@@ -1,0 +1,35 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table > tbody > tr > td {
+  text-align: right;
+  padding: 7px;
+  border-left: 1px solid #444;
+}
+
+.table > tbody > tr > td:first-child {
+  text-align: right;
+  padding: 7px;
+  border-left: none;
+}
+
+.table > thead > tr > th {
+  padding: 7px;
+  border-bottom: 1px solid #888;
+  border-left: 1px solid #444;
+}
+
+.table > thead > tr > th:first-child {
+  border-left: none;
+}
+
+.buttonEdit {
+  width: 30px;
+  height: 30px;
+}
+
+.tableSmallColumn {
+  width: 0;
+}
