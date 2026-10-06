@@ -12,13 +12,15 @@ import { EdadealAPI, EdadealNotFoundError } from './api/edadeal'
 import { getEnvironment } from './environment'
 import { type Item, PrismaClient } from './generated/prisma/client'
 import { getLogger } from './logger'
-import { FontSet, Shuttle, ShuttleServer, StringAlignment } from './shuttle'
+import { FontSet, Shuttle, ShuttleClient, ShuttleServer, StringAlignment } from './shuttle'
 
 const logger = getLogger()
 
 const environment = getEnvironment()
 
-const server = new ShuttleServer(environment.SHUTTLE_SERVER_PORT)
+const shuttleEndpoint = environment.SHUTTLE_CLIENT_HOST 
+  ? new ShuttleClient(environment.SHUTTLE_CLIENT_HOST, environment.SHUTTLE_CLIENT_PORT)
+  : new ShuttleServer(environment.SHUTTLE_SERVER_PORT)
 
 const crptApi = new CrptAPI()
 const edadealApi = new EdadealAPI()
@@ -171,7 +173,7 @@ async function processScan (shuttle: Shuttle, data: Buffer) {
   }
 }
 
-server.on('connection', shuttle => {
+shuttleEndpoint.on('connection', shuttle => {
   shuttle.on('scan', data => {
     processScan(shuttle, data).catch(error => logger.error(`failed to process scan: ${error}`))
   })
@@ -460,9 +462,8 @@ app.listen(environment.WEB_SERVER_PORT, (error) => {
 })
 
 try {
-  await server.start()
-  logger.info(`started shuttle server on :${environment.SHUTTLE_SERVER_PORT}`)
+  await shuttleEndpoint.start()
 } catch (error) {
-  logger.fatal(`failed to start shuttle server on :${environment.SHUTTLE_SERVER_PORT}`, error)
+  logger.fatal(`failed to start shuttle`, error)
   process.exit(1)
 }

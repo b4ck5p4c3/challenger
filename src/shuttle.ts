@@ -1,6 +1,6 @@
 import type { Server, Socket } from 'node:net'
 
-import { createServer } from 'node:net'
+import { createConnection, createServer } from 'node:net'
 
 import { getLogger } from './logger'
 import { AbstractEmitter } from './mitt'
@@ -169,6 +169,8 @@ export class Shuttle extends AbstractEmitter<ShuttleEvents> {
   }
 }
 
+// Server Mode
+
 type ShuttleServerEvents = {
   connection: Shuttle;
 }
@@ -192,6 +194,7 @@ export class ShuttleServer extends AbstractEmitter<ShuttleServerEvents> {
   }
 
   start (): Promise<void> {
+    this.logger.info(`starting shuttle server on :${this.port}...`)
     let resolvePromise: () => void
     let rejectPromise: (error: Error) => void
     const promise = new Promise<void>((resolve, reject) => {
@@ -206,5 +209,42 @@ export class ShuttleServer extends AbstractEmitter<ShuttleServerEvents> {
     })
     this.server.listen(this.port)
     return promise
+  }
+}
+
+// Client Mode
+
+type ShuttleClientEvents = {
+  connection: Shuttle;
+}
+
+export class ShuttleClient extends AbstractEmitter<ShuttleClientEvents> {
+  private readonly logger = getLogger<ShuttleClient>()
+  private socket: null | Socket = null
+
+  constructor (private readonly host: string, private readonly port: number) {
+    super()
+  }
+
+  close (): void {
+    this.socket?.destroy()
+  }
+
+  start (): Promise<void> {
+    this.logger.info(`trying establish connection to shuttle...`)
+    return new Promise((resolve, reject) => {
+      const socket = createConnection({ host: this.host, port: this.port })
+      this.socket = socket
+      const handleError = (error: Error) => {
+        reject(error)
+      }
+      socket.once('error', handleError)
+      socket.once('connect', () => {
+        socket.off('error', handleError)
+        this.logger.info(`connected to ${this.host}:${this.port}`)
+        this.emit('connection', new Shuttle(socket))
+        resolve()
+      })
+    })
   }
 }
