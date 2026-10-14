@@ -7,29 +7,46 @@ datasource db {
   provider = "postgresql"
 }
 
-model Item {
-  @@map("items")
+model Product {
+  @@map("products")
 
-  id String @id @default(uuid())
-  ean13 String @unique()
-  brand String
-  name String
-  volume Decimal @db.Decimal(10, 4)
-  caffeine Decimal @db.Decimal(10, 4)
-  alcohol Decimal @db.Decimal(10, 4)
-  filled Boolean @default(false)
-  scannedItems ScannedItem[]
-  edadealData Json? @db.JsonB
-  crptEanData Json? @db.JsonB
+  id            String        @id @default(uuid())
+  brand         String
+  name          String
+  volume        Decimal       @db.Decimal(10, 4)
+  caffeine      Decimal       @db.Decimal(10, 4)
+  alcohol       Decimal       @db.Decimal(10, 4)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  productCodes  ProductCode[] @map("product_codes")
 }
 
-model ScannedItem {
-  @@map("scanned_items")
-  
-  id String @id @default(uuid())
-  crptLabelId String? @unique()
-  createdAt DateTime @default(now())
-  itemId String
-  item Item @relation(fields: [itemId], references: [id])
-  crptLabelData Json? @db.JsonB
+model ProductCode {
+  @@map("product_codes")
+
+  id          String      @id @default(uuid())
+  gtin        String      @unique
+  productId   String?     @map("product_id")
+  product     Product?    @relation(fields: [productId], references: [id])
+  crptData    Json?       @db.JsonB @map("crpt_data")
+  edadealData Json?       @db.JsonB @map("edadeal_data")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  scanUnits   ScanUnit[]  @map("scan_units")
+
+  @@index([productId])
+}
+
+model ScanUnit {
+  @@map("scan_units")
+
+  id              String      @id @default(uuid())
+  productCodeId   String      @map("product_code_id")
+  productCode     ProductCode @relation(fields: [productCodeId], references: [id]) @map("product_code")
+  chestnyZnakCode String?     @unique @map("chestny_znak_code")
+  chestnyZnakData Json?       @db.JsonB @map("chestny_znak_data")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@index([productCodeId, createdAt])
 }

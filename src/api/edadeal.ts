@@ -38,7 +38,7 @@ export class EdadealNotFoundError extends Error {}
 
 export class EdadealAPI {
   async search (sku: string): Promise<EdadealResult> {
-    const response = await fetch(`${EDADEAL_HOST}/api/search/api/v4/item/${sku}?adultContent=true&type=sku`)
+    const response = await fetch(`${EDADEAL_HOST}/api/search/api/v4/item/${sku}?adultContent=true&type=sku`, { signal: AbortSignal.timeout(8000) })
     if (response.status === 404) {
       throw new EdadealNotFoundError(await response.text())
     }

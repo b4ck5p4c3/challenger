@@ -1,469 +1,368 @@
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Decimal, type InputJsonObject } from '@prisma/client/runtime/client'
+﻿import { PrismaPg } from '@prisma/adapter-pg'
 import cors from 'cors'
 import express from 'express'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import OpenAI from 'openai'
+import { Decimal } from '@prisma/client/runtime/client'
 import z from 'zod'
 
 import { CrptAPI } from './api/crpt'
-import { EdadealAPI, EdadealNotFoundError } from './api/edadeal'
+import { EdadealAPI } from './api/edadeal'
+import { ScanService } from './application/scan-service'
+import { ShuttleAdapter } from './shuttle/adapter'
 import { getEnvironment } from './environment'
-import { type Item, PrismaClient } from './generated/prisma/client'
+import { PrismaClient } from './generated/prisma/client'
 import { getLogger } from './logger'
-import { FontSet, Shuttle, ShuttleClient, ShuttleServer, StringAlignment } from './shuttle'
+import { ShuttleClient, ShuttleServer } from './shuttle/protocol'
 
 const logger = getLogger()
-
 const environment = getEnvironment()
-
-const shuttleEndpoint = environment.SHUTTLE_CLIENT_HOST 
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: environment.DATABASE_URL }) })
+const scanService = new ScanService(prisma, new CrptAPI(), new EdadealAPI())
+const shuttleEndpoint = environment.SHUTTLE_CLIENT_HOST
   ? new ShuttleClient(environment.SHUTTLE_CLIENT_HOST, environment.SHUTTLE_CLIENT_PORT)
   : new ShuttleServer(environment.SHUTTLE_SERVER_PORT)
-
-const crptApi = new CrptAPI()
-const edadealApi = new EdadealAPI()
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({
-    connectionString: environment.DATABASE_URL
-  })
-})
-
-const EAN13_REGEX = /^(\d{13})$/
-
-async function fetchCrptEanDataSafe (ean: string): Promise<undefined | unknown> {
-  try {
-    return await crptApi.checkEan(ean)
-  } catch (error) {
-    logger.warn(error)
-    return undefined
-  }
-}
-
-async function fetchEdadealDataSafe (code: string): Promise<undefined | unknown> {
-  try {
-    return await edadealApi.search(code)
-  } catch (error) {
-    if (error instanceof EdadealNotFoundError) {
-      return undefined
-    }
-    logger.warn(error)
-    return undefined
-  }
-}
-
-async function parseInput (code: string): Promise<null | {
-  crptEanData?: unknown,
-  crptLabelData?: unknown,
-  crptLabelId?: string,
-  ean13: string;
-  edadealData?: unknown
-}> {
-  if (EAN13_REGEX.test(code)) {
-    return { crptEanData: await fetchCrptEanDataSafe(code), ean13: code, edadealData: await fetchEdadealDataSafe(code) }
-  }
-  try {
-    const result = await crptApi.checkDataMatrix(code)
-    if (!result.codeFounded) {
-      return null
-    }
-    return {
-      crptEanData: await fetchCrptEanDataSafe(result.gtin.slice(1)),
-      crptLabelData: result,
-      crptLabelId: result.serial,
-      ean13: result.gtin.slice(1),
-      edadealData: await fetchEdadealDataSafe(result.gtin.slice(1)),
-    }
-  } catch (error) {
-    logger.warn(error)
-    return null
-  }
-}
-
-async function processScan (shuttle: Shuttle, data: Buffer) {
-  await shuttle.sendEnableScanning(false)
-  await shuttle.sendClearDisplayAndMoveToTopLeft()
-  await shuttle.sendPrintAlignedString(StringAlignment.CENTER_CENTER, 'Processing...')
-
-  try {
-    const code = data.toString('ascii')
-
-    const inputParseResult = await parseInput(code)
-    if (!inputParseResult) {
-      await shuttle.sendClearDisplayAndMoveToTopLeft()
-      await shuttle.sendSelectFontSet(FontSet.LARGE)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_CENTER, 'WTF is it?')
-      return
-    }
-
-    const { crptEanData, crptLabelData, crptLabelId, ean13, edadealData } = inputParseResult
-
-    let item = await prisma.item.findFirst({ where: { ean13 } })
-    if (!item) {
-      item = await prisma.item.create({
-        data: {
-          alcohol: new Decimal(0),
-          brand: '???',
-          caffeine: new Decimal(0),
-          crptEanData: (crptEanData ?? null) as InputJsonObject,
-          ean13,
-          edadealData: (edadealData ?? null) as InputJsonObject,
-          name: '???',
-          volume: new Decimal(0)
-        }
-      })
-
-      const result = await doAiMagic(item)
-      item = await prisma.item.update({
-        data: {
-          ...(result.brand !== undefined && { brand: result.brand }),
-          ...(result.name !== undefined && { name: result.name }),
-          ...(result.volume !== undefined && { volume: new Decimal(result.volume) }),
-        },
-        where: {
-          id: item.id
-        }
-      })
-    }
-
-    if (crptLabelId && await prisma.scannedItem.findFirst({ where: { crptLabelId } })) {
-      await shuttle.sendClearDisplayAndMoveToTopLeft()
-      await shuttle.sendSelectFontSet(FontSet.LARGE)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_CENTER, 'Already added!')
-      return
-    }
-
-    await prisma.scannedItem.create({
-      data: {
-        crptLabelData: (crptLabelData ?? null) as InputJsonObject,
-        crptLabelId: crptLabelId ?? null,
-        itemId: item.id
-      }
-    })
-
-    if (!item.filled) {
-      await shuttle.sendClearDisplayAndMoveToTopLeft()
-      await shuttle.sendSelectFontSet(FontSet.LARGE)
-      await shuttle.sendSetPixelPosition(0, 0)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, item.brand)
-      await shuttle.sendSelectFontSet(FontSet.NORMAL)
-      await shuttle.sendSetPixelPosition(0, 20)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, item.name)
-      await shuttle.sendSetPixelPosition(0, 32)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, `${item.volume}ml`)
-      await shuttle.sendPrintAlignedString(StringAlignment.CENTER_BOTTOM, '! Unknown, please fill !')
-      return
-    }
-
-    await shuttle.sendClearDisplayAndMoveToTopLeft()
-    await shuttle.sendSelectFontSet(FontSet.LARGE)
-    await shuttle.sendSetPixelPosition(0, 0)
-    await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, item.brand)
-    await shuttle.sendSelectFontSet(FontSet.NORMAL)
-    await shuttle.sendSetPixelPosition(0, 20)
-    await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, item.name)
-    await shuttle.sendSetPixelPosition(0, 32)
-    await shuttle.sendPrintAlignedString(StringAlignment.CENTER_WITH_CURRENT_Y, item.volume + 'ml / ' + item.caffeine + 'mg')
-    await shuttle.sendPrintAlignedString(StringAlignment.RIGHT_BOTTOM, 'Saved')
-  } catch (error) {
-    logger.error(error)
-  } finally {
-    await shuttle.sendEnableScanning(true)
-  }
-}
-
-shuttleEndpoint.on('connection', shuttle => {
-  shuttle.on('scan', data => {
-    processScan(shuttle, data).catch(error => logger.error(`failed to process scan: ${error}`))
-  })
-})
+const shuttleAdapter = new ShuttleAdapter(shuttleEndpoint, input => scanService.process(input))
 
 const app = express()
-
 app.use(cors())
 app.use(express.json())
-app.use('/', express.static(path.join(process.cwd(), 'public')))
+const frontendDirectory = path.resolve(process.cwd(), environment.FRONTEND_DIR)
+app.use(express.static(frontendDirectory))
+app.use(express.static(path.join(process.cwd(), 'public')))
 
-app.get('/api/items', (_, response) => {
-  prisma.item.findMany({
-    orderBy: {
-      ean13: 'asc'
-    }
-  })
-    .then(result => response.json(result.map(item => ({
-      alcohol: item.alcohol.toNumber(),
-      brand: item.brand,
-      caffeine: item.caffeine.toNumber(),
-      crptEanData: item.crptEanData,
-      ean13: item.ean13,
-      edadealData: item.edadealData,
-      filled: item.filled,
-      id: item.id,
-      name: item.name,
-      volume: item.volume.toNumber()
-    }))))
-    .catch(error => {
-      logger.error(error)
-      response.status(500).json({})
-    })
+const scanRequest = z.object({
+  adapterId: z.string().min(1).default('web'),
+  codeType: z.enum(['ean13', 'chestny_znak']),
+  correlationId: z.string().optional(),
+  rawCode: z.string().min(1)
 })
 
-app.get('/api/items/:id', (request, response) => {
-  prisma.item.findFirst({
-    where: {
-      id: request.params.id
-    }
-  })
-    .then(item => {
-      if (item) {
-        response.json({
-          alcohol: item.alcohol.toNumber(),
-          brand: item.brand,
-          caffeine: item.caffeine.toNumber(),
-          crptEanData: item.crptEanData,
-          ean13: item.ean13,
-          edadealData: item.edadealData,
-          filled: item.filled,
-          id: item.id,
-          name: item.name,
-          volume: item.volume.toNumber()
-        })
-      } else {
-        response.status(400).json({})
-      }
-    })
-    .catch(error => {
-      logger.error(error)
-      response.status(500).json({})
-    })
-})
-
-app.get('/api/history', (request, response) => {
-  const page = Math.max(1, Number.parseInt(String(request.query['page'] ?? '1')))
-  Promise.all([prisma.scannedItem.findMany({
-    include: {
-      item: true
-    },
-    orderBy: {
-      createdAt: 'desc'
-    },
-    skip: (page - 1) * 50,
-    take: 50
-  }), prisma.scannedItem.count()])
-    .then(([result, total]) => response.json({
-      scannedItems: result.map(item => ({
-        createdAt: item.createdAt.toISOString(),
-        crptLabelData: item.crptLabelData,
-        crptLabelId: item.crptLabelId,
-        id: item.id,
-        item: {
-          alcohol: item.item.alcohol.toNumber(),
-          brand: item.item.brand,
-          caffeine: item.item.caffeine.toNumber(),
-          crptEanData: item.item.crptEanData,
-          ean13: item.item.ean13,
-          edadealData: item.item.edadealData,
-          filled: item.item.filled,
-          id: item.item.id,
-          name: item.item.name,
-          volume: item.item.volume.toNumber()
-        }
-      })),
-      total
-    }))
-    .catch(error => {
-      logger.error(error)
-      response.status(500).json({})
-    })
-})
-
-export interface Stats {
-  alcohol: number
-  caffeine: number
-  volume: number
-}
-
-async function calculateStats (type: 'day' | 'month' | 'total'): Promise<Stats> {
-  const now = new Date()
-
-  let results: {
-    alcohol: string,
-    caffeine: string
-    volume: string,
-  }[]
-
-  switch (type) {
-    case 'day': {
-      results = await prisma.$queryRaw`SELECT 
-        sum(volume) as "volume", 
-        sum(alcohol) as "alcohol", 
-        sum(caffeine) as "caffeine"
-        FROM scanned_items
-        LEFT JOIN items ON scanned_items."itemId" = items.id
-        WHERE filled AND scanned_items."createdAt" >= ${new Date(now.getTime() - 24 * 60 * 60 * 1000)}`
-      break
-    }
-    case 'month': {
-      results = await prisma.$queryRaw`SELECT 
-        sum(volume) as "volume", 
-        sum(alcohol) as "alcohol", 
-        sum(caffeine) as "caffeine"
-        FROM scanned_items
-        LEFT JOIN items ON scanned_items."itemId" = items.id
-        WHERE filled AND scanned_items."createdAt" >= ${new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)}`
-      break
-    }
-    case 'total': {
-      results = await prisma.$queryRaw`SELECT 
-        sum(volume) as "volume", 
-        sum(alcohol) as "alcohol", 
-        sum(caffeine) as "caffeine"
-        FROM scanned_items
-        LEFT JOIN items ON scanned_items."itemId" = items.id
-        WHERE filled`
-      break
-    }
+app.post('/api/scans', async (request, response) => {
+  const parsed = scanRequest.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_SCAN_INPUT', msg: parsed.error.message, type: 'error' })
+    return
   }
-
-  const result = results[0]
-  if (!result) {
-    throw new Error('WTF')
-  }
-
-  return {
-    alcohol: Number.parseFloat(result.alcohol),
-    caffeine: Number.parseFloat(result.caffeine),
-    volume: Number.parseFloat(result.volume)
-  }
-}
-
-app.get('/api/stats', async (_, response) => {
-  Promise.all([calculateStats('day'), calculateStats('month'), calculateStats('total')])
-    .then(stats => {
-      const [day, month, total] = stats
-      response.json({
-        day,
-        month,
-        total
-      })
-    })
+  response.json(await scanService.process({
+    adapterId: parsed.data.adapterId,
+    codeType: parsed.data.codeType,
+    rawCode: parsed.data.rawCode,
+    receivedAt: new Date(),
+    ...(parsed.data.correlationId === undefined ? {} : { correlationId: parsed.data.correlationId })
+  }))
 })
 
-const itemsPatchRequest = z.object({
-  alcohol: z.number().optional(),
-  brand: z.string().optional(),
-  caffeine: z.number().optional(),
-  filled: z.boolean(),
-  name: z.string().optional(),
-  volume: z.number().optional()
-})
-
-app.patch('/api/items/:id', (request, response) => {
-  const data = itemsPatchRequest.parse(request.body)
-  const id = request.params.id
-
-  prisma.item.update({
-    data: {
-      ...(data.alcohol !== undefined && { alcohol: new Decimal(data.alcohol) }),
-      ...(data.brand !== undefined && { brand: data.brand }),
-      ...(data.caffeine !== undefined && { caffeine: new Decimal(data.caffeine) }),
-      ...(data.filled !== undefined && { filled: data.filled }),
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.volume !== undefined && { volume: new Decimal(data.volume) }),
-    },
-    where: {
-      id
-    }
-  })
-    .then(() => response.json({}))
-    .catch(error => {
-      logger.error(error)
-      response.status(500).json({})
-    })
-})
-
-const aiResponseSchema = z.object({
-  alcohol: z.number().optional(),
-  alcoholPercent: z.number().optional(),
-  brand: z.string().optional(),
-  caffeine: z.number().optional(),
-  caffeineConcentration: z.number().optional(),
-  name: z.string().optional(),
-  volume: z.number().optional()
-})
-
-const client = new OpenAI({
-  apiKey: environment.OPENAI_API_KEY,
-  baseURL: environment.OPENAI_BASE_URL
-})
-
-const systemPrompt = readFileSync('magic-system-prompt.txt').toString('utf8')
-
-type AiResponse = z.infer<typeof aiResponseSchema>
-
-async function doAiMagic (item: Item): Promise<AiResponse> {
-  const completion = await client.chat.completions.create({
-    messages: [{
-      content: systemPrompt,
-      role: 'system'
-    }, {
-      content: JSON.stringify({
-        crpt: item.crptEanData,
-        edadeal: item.edadealData
-      }),
-      role: 'user'
-    }],
-    model: environment.OPENAI_MODEL
-  })
-
-  const content = completion.choices[0]?.message.content
-  logger.info(content)
-  if (!content) {
-    return {}
-  }
+app.get('/api/products', async (_, response) => {
   try {
-    const jsonData = JSON.parse(content)
-    return aiResponseSchema.parse(jsonData)
+    const products = await prisma.product.findMany({ orderBy: { name: 'asc' } })
+    response.json(products.map(serializeProduct))
   } catch (error) {
-    logger.warn(error)
-    return {}
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
   }
-}
+})
 
-app.post('/api/items/:id/ai', (request, response) => {
-  const id = request.params.id
+const productCreate = z.object({
+  alcohol: z.number().nonnegative(),
+  brand: z.string().trim().min(1),
+  caffeine: z.number().nonnegative(),
+  name: z.string().trim().min(1),
+  productCodeId: z.string().min(1).optional(),
+  volume: z.number().nonnegative()
+})
 
-  prisma.item.findFirst({
-    where: {
-      id
+app.post('/api/products', async (request, response) => {
+  const parsed = productCreate.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_PRODUCT', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  const productCodeId = parsed.data.productCodeId
+  try {
+    if (productCodeId) {
+      const productCode = await prisma.productCode.findUnique({ where: { id: productCodeId } })
+      if (!productCode) {
+        response.status(404).json({ code: 'PRODUCT_CODE_NOT_FOUND', msg: 'ProductCode was not found', type: 'error' })
+        return
+      }
+      if (productCode.productId) {
+        response.status(409).json({ code: 'PRODUCT_CODE_ALREADY_ATTACHED', msg: 'ProductCode is already attached to a Product', type: 'error' })
+        return
+      }
     }
-  }).then(item => {
-    if (!item) {
+
+    const product = await prisma.$transaction(async transaction => {
+      const created = await transaction.product.create({
+        data: {
+          alcohol: new Decimal(parsed.data.alcohol),
+          brand: parsed.data.brand,
+          caffeine: new Decimal(parsed.data.caffeine),
+          name: parsed.data.name,
+          volume: new Decimal(parsed.data.volume)
+        }
+      })
+      if (productCodeId) {
+        await transaction.productCode.update({
+          data: { productId: created.id },
+          where: { id: productCodeId }
+        })
+      }
+      return created
+    })
+    response.status(201).json(serializeProduct(product))
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.get('/api/products/:id', async (request, response) => {
+  try {
+    const product = await prisma.product.findUnique({
+      include: { productCodes: true },
+      where: { id: request.params.id }
+    })
+    if (!product) {
       response.status(404).json({})
       return
     }
-    return doAiMagic(item)
-  }).then(result => {
-    response.json(result)
-  }).catch(error => {
+    response.json({ ...serializeProduct(product), productCodes: product.productCodes })
+  } catch (error) {
     logger.error(error)
-    response.status(500).json({})
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+const productPatch = z.object({
+  alcohol: z.number().nonnegative().optional(),
+  brand: z.string().optional(),
+  caffeine: z.number().nonnegative().optional(),
+  name: z.string().optional(),
+  volume: z.number().nonnegative().optional()
+})
+
+app.patch('/api/products/:id', async (request, response) => {
+  const parsed = productPatch.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_PRODUCT', msg: parsed.error.message, type: 'error' })
+    return
+  }
+  try {
+    const product = await prisma.product.update({
+      data: {
+        ...(parsed.data.alcohol !== undefined && { alcohol: new Decimal(parsed.data.alcohol) }),
+        ...(parsed.data.brand !== undefined && { brand: parsed.data.brand }),
+        ...(parsed.data.caffeine !== undefined && { caffeine: new Decimal(parsed.data.caffeine) }),
+        ...(parsed.data.name !== undefined && { name: parsed.data.name }),
+        ...(parsed.data.volume !== undefined && { volume: new Decimal(parsed.data.volume) })
+      },
+      where: { id: request.params.id }
+    })
+    response.json(serializeProduct(product))
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+const productDelete = z.object({
+  mode: z.enum(['product', 'product_with_history'])
+})
+
+app.delete('/api/products/:id', async (request, response) => {
+  const parsed = productDelete.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_PRODUCT_DELETE', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  try {
+    const product = await prisma.product.findUnique({ where: { id: request.params.id } })
+    if (!product) {
+      response.status(404).json({ code: 'PRODUCT_NOT_FOUND', msg: 'Product was not found', type: 'error' })
+      return
+    }
+
+    await prisma.$transaction(async transaction => {
+      const productCodes = await transaction.productCode.findMany({
+        select: { id: true },
+        where: { productId: product.id }
+      })
+      const productCodeIds = productCodes.map(productCode => productCode.id)
+
+      if (parsed.data.mode === 'product_with_history') {
+        if (productCodeIds.length > 0) {
+          await transaction.scanUnit.deleteMany({ where: { productCodeId: { in: productCodeIds } } })
+          await transaction.productCode.deleteMany({ where: { id: { in: productCodeIds } } })
+        }
+      } else {
+        await transaction.productCode.updateMany({
+          data: { productId: null },
+          where: { productId: product.id }
+        })
+      }
+
+      await transaction.product.delete({ where: { id: product.id } })
+    })
+    response.status(204).end()
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.get('/api/product-codes', async (_, response) => {
+  response.json(await prisma.productCode.findMany({ orderBy: { gtin: 'asc' } }))
+})
+
+app.get('/api/product-codes/:id', async (request, response) => {
+  const productCode = await prisma.productCode.findUnique({
+    include: { product: true, scanUnits: true },
+    where: { id: request.params.id }
+  })
+  if (!productCode) {
+    response.status(404).json({})
+    return
+  }
+  response.json(productCode)
+})
+
+const productCodePatch = z.object({
+  productId: z.string().min(1)
+})
+
+app.patch('/api/product-codes/:id', async (request, response) => {
+  const parsed = productCodePatch.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_PRODUCT_CODE', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  try {
+    const [productCode, product] = await Promise.all([
+      prisma.productCode.findUnique({ where: { id: request.params.id } }),
+      prisma.product.findUnique({ where: { id: parsed.data.productId } })
+    ])
+    if (!productCode) {
+      response.status(404).json({ code: 'PRODUCT_CODE_NOT_FOUND', msg: 'ProductCode was not found', type: 'error' })
+      return
+    }
+    if (!product) {
+      response.status(404).json({ code: 'PRODUCT_NOT_FOUND', msg: 'Product was not found', type: 'error' })
+      return
+    }
+
+    const updated = await prisma.productCode.update({
+      data: { productId: product.id },
+      include: { product: true },
+      where: { id: productCode.id }
+    })
+    response.json(updated)
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.get('/api/scan-units', async (request, response) => {
+  const page = Math.max(1, Number.parseInt(String(request.query['page'] ?? '1')))
+  const [scanUnits, total] = await Promise.all([
+    prisma.scanUnit.findMany({
+      include: { productCode: { include: { product: true } } },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * 50,
+      take: 50
+    }),
+    prisma.scanUnit.count()
+  ])
+  response.json({ scanUnits, total })
+})
+
+app.delete('/api/scan-units/:id', async (request, response) => {
+  try {
+    await prisma.scanUnit.delete({ where: { id: request.params.id } })
+    response.status(204).end()
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.get('/api/scan-units/:id', async (request, response) => {
+  const scanUnit = await prisma.scanUnit.findUnique({
+    include: { productCode: { include: { product: true } } },
+    where: { id: request.params.id }
+  })
+  if (!scanUnit) {
+    response.status(404).json({})
+    return
+  }
+  response.json(scanUnit)
+})
+
+app.get('/api/stats', async (_, response) => {
+  try {
+    const [day, month, total] = await Promise.all([
+      calculateStats(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+      calculateStats(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+      calculateStats()
+    ])
+    response.json({ day, month, total })
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.use((request, response, next) => {
+  const isApiRequest = request.path === '/api' || request.path.startsWith('/api/')
+  const hasFileExtension = path.extname(request.path) !== ''
+  if (request.method !== 'GET' || isApiRequest || hasFileExtension || !request.accepts('html')) {
+    next()
+    return
+  }
+  response.sendFile(path.join(frontendDirectory, 'index.html'), error => {
+    if (error) next(error)
   })
 })
 
-app.listen(environment.WEB_SERVER_PORT, (error) => {
-  if (error) {
-    logger.fatal(`failed to start web server on :${environment.WEB_SERVER_PORT}`, error)
-    process.exit(1)
+function serializeProduct (product: { id: string; brand: string; name: string; volume: Decimal; caffeine: Decimal; alcohol: Decimal; createdAt: Date; updatedAt: Date }): Record<string, unknown> {
+  return {
+    alcohol: product.alcohol.toNumber(),
+    brand: product.brand,
+    caffeine: product.caffeine.toNumber(),
+    createdAt: product.createdAt.toISOString(),
+    id: product.id,
+    name: product.name,
+    updatedAt: product.updatedAt.toISOString(),
+    volume: product.volume.toNumber()
   }
+}
 
+async function calculateStats (since?: Date) {
+  const rows = await prisma.$queryRaw<Array<{ alcohol: string | null; caffeine: string | null; volume: string | null }>>`
+    SELECT
+      COALESCE(sum(products.volume), 0) AS "volume",
+      COALESCE(sum(products.alcohol), 0) AS "alcohol",
+      COALESCE(sum(products.caffeine), 0) AS "caffeine"
+    FROM scan_units
+    JOIN product_codes ON product_codes.id = scan_units.product_code_id
+    JOIN products ON products.id = product_codes.product_id
+    WHERE (${since ?? null}::timestamp IS NULL OR scan_units.created_at >= ${since ?? null})
+  `
+  const row = rows[0]
+  return {
+    alcohol: Number(row?.alcohol ?? 0),
+    caffeine: Number(row?.caffeine ?? 0),
+    volume: Number(row?.volume ?? 0)
+  }
+}
+
+// fn main() { // >:P
+app.listen(environment.WEB_SERVER_PORT, () => {
   logger.info(`started web server on :${environment.WEB_SERVER_PORT}`)
 })
 
-try {
-  await shuttleEndpoint.start()
-} catch (error) {
-  logger.fatal(`failed to start shuttle`, error)
-  process.exit(1)
-}
+await shuttleAdapter.start()
+// }

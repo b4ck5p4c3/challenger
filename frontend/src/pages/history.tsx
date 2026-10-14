@@ -1,42 +1,206 @@
-import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { type FormEvent, useState } from 'react'
+import { Link } from 'react-router'
 import { Button } from '../components/button'
-import { getHistory, HISTORY_QUERY_KEY } from '../utils/api'
+import {
+  attachProductCode,
+  createItem,
+  getHistory,
+  getItems,
+  HISTORY_QUERY_KEY,
+  ITEMS_QUERY_KEY,
+  STATS_QUERY_KEY,
+  request,
+  type ProductInput
+} from '../utils/api'
 import styles from './history.module.css'
-import {useQuery} from '@tanstack/react-query'
+
+type ProductDraft = {
+  brand: string
+  name: string
+  volume: string
+  caffeine: string
+  alcohol: string
+}
+
+function emptyDraft (): ProductDraft {
+  return { alcohol: '0', brand: '', caffeine: '0', name: '', volume: '0' }
+}
 
 export function HistoryPage() {
   const [page, setPage] = useState(1)
+  const [createCodeId, setCreateCodeId] = useState<string | null>(null)
+  const [attachCodeId, setAttachCodeId] = useState<string | null>(null)
+  const [attachProductId, setAttachProductId] = useState('')
+  const [attachCanCreate, setAttachCanCreate] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [draft, setDraft] = useState<ProductDraft>(emptyDraft)
+  const [busy, setBusy] = useState(false)
+  const queryClient = useQueryClient()
 
   const history = useQuery({
     queryFn: () => getHistory(page),
     queryKey: [HISTORY_QUERY_KEY, page]
   })
+  const products = useQuery({
+    queryFn: getItems,
+    queryKey: [ITEMS_QUERY_KEY]
+  })
+
+  function startCreate (codeId: string) {
+    setAttachCodeId(null)
+    setAttachCanCreate(false)
+    setProductSearch('')
+    setCreateCodeId(codeId)
+    setDraft(emptyDraft())
+  }
+
+  function startAttach (codeId: string, currentProductId: string | null) {
+    setCreateCodeId(null)
+    setAttachCodeId(codeId)
+    setAttachCanCreate(currentProductId === null)
+    setProductSearch('')
+    setAttachProductId(currentProductId ?? products.data?.[0]?.id ?? '')
+  }
+
+  async function submitCreate (event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!createCodeId) return
+    const input: ProductInput = {
+      alcohol: Number.parseFloat(draft.alcohol),
+      brand: draft.brand.trim(),
+      caffeine: Number.parseFloat(draft.caffeine),
+      name: draft.name.trim(),
+      volume: Number.parseFloat(draft.volume)
+    }
+    if (!input.brand || !input.name || Object.values(input).some(value => typeof value === 'number' && !Number.isFinite(value))) {
+      return
+    }
+
+    setBusy(true)
+    try {
+      await createItem(input, createCodeId)
+      await Promise.all([
+        history.refetch(),
+        queryClient.invalidateQueries({ queryKey: [ITEMS_QUERY_KEY] }),
+        queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
+      ])
+      setCreateCodeId(null)
+    } catch (error) {
+      alert(String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitAttach (event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!attachCodeId || !attachProductId) return
+    setBusy(true)
+    try {
+      await attachProductCode(attachCodeId, attachProductId)
+      await Promise.all([
+        history.refetch(),
+        queryClient.invalidateQueries({ queryKey: [ITEMS_QUERY_KEY] }),
+        queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
+      ])
+      setAttachCodeId(null)
+      setAttachCanCreate(false)
+    } catch (error) {
+      alert(String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const normalizedSearch = productSearch.trim().toLocaleLowerCase()
+  const matchingProducts = products.data?.filter(product => {
+    if (!normalizedSearch) return true
+    return `${product.name} ${product.brand}`.toLocaleLowerCase().includes(normalizedSearch)
+  }) ?? []
+  const selectedProduct = products.data?.find(product => product.id === attachProductId)
+  const visibleProducts = selectedProduct && !matchingProducts.some(product => product.id === selectedProduct.id)
+    ? [selectedProduct, ...matchingProducts]
+    : matchingProducts
 
   return <>
-    <h3>History</h3>
-    <table className={styles.table}>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>EAN13</th>
-          <th>Item</th>
-          <th>CRPT Label</th>
-        </tr>
-      </thead>
-      <tbody>
-        {history.data?.scannedItems?.map(item => <tr key={item.id}>
-          <td>{new Date(item.createdAt).toLocaleString()}</td>
-          <td>{item.item.ean13}</td>
-          <td>{item.item.brand} - {item.item.name}</td>
-          <td>{item.crptLabelId ?? '-'}</td>
-        </tr>)}
-      </tbody>
-    </table>
+    <div className={styles.heading}>
+      <h3>History</h3>
+      <span>{history.data?.total ?? 0} scans</span>
+    </div>
+
+    {createCodeId && <form className={styles.editor} onSubmit={event => void submitCreate(event)}>
+      <strong>Create product for GTIN</strong>
+      <div className={styles.formGrid}>
+        <label>Brand<input required value={draft.brand} onChange={event => setDraft(current => ({ ...current, brand: event.target.value }))} /></label>
+        <label>Name<input required value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} /></label>
+        <label>Volume, ml<input required min="0" step="any" type="number" value={draft.volume} onChange={event => setDraft(current => ({ ...current, volume: event.target.value }))} /></label>
+        <label>Caffeine, mg<input required min="0" step="any" type="number" value={draft.caffeine} onChange={event => setDraft(current => ({ ...current, caffeine: event.target.value }))} /></label>
+        <label>Alcohol, ml<input required min="0" step="any" type="number" value={draft.alcohol} onChange={event => setDraft(current => ({ ...current, alcohol: event.target.value }))} /></label>
+      </div>
+      <div className={styles.editorActions}>
+        <Button type="submit" disabled={busy}>Create and attach</Button>
+        <Button type="button" onClick={() => setCreateCodeId(null)} disabled={busy}>Cancel</Button>
+      </div>
+    </form>}
+
+    {attachCodeId && <form className={styles.editor} onSubmit={event => void submitAttach(event)}>
+      <div className={styles.editorHeader}>
+        <strong>Attach GTIN to an existing product</strong>
+        <Button type="button" onClick={() => startCreate(attachCodeId)} disabled={busy || !attachCanCreate}>Create</Button>
+      </div>
+      <label className={styles.selectLabel}>Search by name
+        <input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Type a product name" disabled={busy} />
+      </label>
+      <label className={styles.selectLabel}>Product
+        <select value={attachProductId} onChange={event => setAttachProductId(event.target.value)} disabled={busy || !products.data?.length}>
+          {visibleProducts.map(product => <option key={product.id} value={product.id}>{product.brand} - {product.name}</option>)}
+        </select>
+      </label>
+      <div className={styles.editorActions}>
+        <Button type="submit" disabled={busy || !attachProductId}>Attach</Button>
+        <Button type="button" onClick={() => setAttachCodeId(null)} disabled={busy}>Cancel</Button>
+      </div>
+    </form>}
+
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>GTIN</th>
+            <th>Product</th>
+            <th>CRPT label</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.data?.scanUnits?.map(item => <tr key={item.id}>
+            <td>{new Date(item.createdAt).toLocaleString()}</td>
+            <td><Link to={`/records/product-codes/${item.productCode.id}`}>{item.productCode.gtin}</Link></td>
+            <td>{item.productCode.product ? `${item.productCode.product.brand} - ${item.productCode.product.name}` : <span className={styles.unassigned}>Unassigned</span>}</td>
+            <td><Link to={`/records/scan-units/${item.id}`}>{item.chestnyZnakCode ?? 'No Chestny Znak'}</Link></td>
+            <td className={styles.actions}>
+              <Button onClick={() => startAttach(item.productCode.id, item.productCode.productId)} disabled={busy || !products.data?.length}>
+                {item.productCode.product ? 'Change' : 'Attach'}
+              </Button>
+              <Button onClick={async () => {
+                if (!confirm('Delete this scan?')) return
+                try {
+                  await request(`/scan-units/${item.id}`, { method: 'DELETE' })
+                  await history.refetch()
+                  await queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
+                } catch (error) { alert(String(error)) }
+              }}>Delete</Button>
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+    </div>
     <div className={styles.paginator}>
       <Button className={styles.pageButton} disabled={page === 1} onClick={() => setPage(page - 1)}>&lt;</Button>
-      <div>{page}/{history.data ? Math.floor((history.data.total + 49) / 50) : '?'}</div>
-      <Button className={styles.pageButton} disabled={!history.data || page == Math.floor((history.data.total + 49) / 50)} 
-        onClick={() => setPage(page + 1)}>&gt;</Button>
+      <div>{page}/{history.data ? Math.max(1, Math.ceil(history.data.total / 50)) : '?'}</div>
+      <Button className={styles.pageButton} disabled={!history.data || page >= Math.max(1, Math.ceil(history.data.total / 50))} onClick={() => setPage(page + 1)}>&gt;</Button>
     </div>
   </>
 }

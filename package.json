@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "description": "Server for Shuttle+ scanner",
   "scripts": {
-    "start": "tsx src/main.ts",
-    "contract:emit": "prisma contract emit"
+    "start": "bun src/main.ts",
+    "contract:emit": "bunx --bun prisma contract emit",
+    "dev": "bun run --watch src/main.ts -vvv",
+    "build": "bun build --compile --minify --sourcemap ./src/main.ts --outfile ./dist/challenger",
+    "lint": "eslint src",
+    "check": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",

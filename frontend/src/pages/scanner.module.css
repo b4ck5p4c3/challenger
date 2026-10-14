@@ -1,0 +1,53 @@
+.scanner { margin: 0; }
+.heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.heading h3 { margin-bottom: 10px; }
+.scannerContent { max-width: 640px; margin: 0 auto; }
+.camera { position: relative; overflow: hidden; border: 1px solid #52616b; background: #080b0d; }
+.camera video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.frame { position: absolute; inset: 20%; border: 1px dashed #f5bd4f; pointer-events: none; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.scanner button {
+  padding: 8px 12px;
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.scanner button:hover:not(:disabled),
+.scanner button:focus-visible {
+  background: #202020;
+}
+.scanner button:disabled {
+  border-color: #555;
+  background: #111;
+  color: #777;
+  cursor: not-allowed;
+}
+.scanner form {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #34414a;
+}
+.scanner input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #52616b;
+  background: #000;
+  color: #fff;
+  font: inherit;
+}
+.scanner input:focus {
+  outline: 1px solid #f5bd4f;
+  outline-offset: 1px;
+}
+.scanner p {
+  /* min-height: 3em; */
+  margin: 12px 0;
+  padding-left: 8px;
+  border-left: 2px solid #52616b;
+  overflow-wrap: anywhere;
+}

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router"
-import { getItem, updateItem, doAiMagicOnItem } from "../utils/api"
+import { getItem, updateItem } from "../utils/api"
 import { InputText } from "../components/input-text"
 import styles from "./item-edit.module.css"
 import { Button } from "../components/button"
@@ -14,7 +14,6 @@ const itemEditFormSchema = z.object({
   volume: z.string().nonempty().refine(value => Number.parseFloat(value) > 0),
   caffeine: z.string().nonempty().refine(value => Number.parseFloat(value) >= 0),
   alcohol: z.string().nonempty().refine(value => Number.parseFloat(value) >= 0),
-  filled: z.boolean()
 })
 
 export function ItemEditPage() {
@@ -31,7 +30,6 @@ export function ItemEditPage() {
       volume: "0",
       caffeine: "0",
       alcohol: "0",
-      filled: false
     },
   })
 
@@ -42,10 +40,10 @@ export function ItemEditPage() {
     async function fetchItem() {
       const item = await getItem(id!)
       if (!item) {
-        navigate('/items')
+        navigate('/products')
         return
       }
-      form.setValues({
+      form.reset({
         ...item,
         volume: item.volume.toString(),
         caffeine: item.caffeine.toString(),
@@ -55,7 +53,7 @@ export function ItemEditPage() {
       setCaffeineConcentration((item.caffeine / Math.max(1, item.volume) * 100).toString())
       setPending(false)
     }
-    fetchItem()
+    fetchItem().catch(error => { alert(String(error)); setPending(false) })
   }, [id, navigate, form])
 
   function onSubmit(data: z.infer<typeof itemEditFormSchema>) {
@@ -65,64 +63,13 @@ export function ItemEditPage() {
       alcohol: Number.parseFloat(data.alcohol),
       volume: Number.parseFloat(data.volume),
       caffeine: Number.parseFloat(data.caffeine)
-    }).finally(() => setPending(false))
+    }).catch(error => alert(String(error))).finally(() => setPending(false))
   }
   
-  function doAiMagic() {
-    setPending(true)
-    doAiMagicOnItem(id!).then(result => {
-      if (result.brand !== undefined) {
-        form.setValue('brand', result.brand)
-      } else {
-        form.setValue('brand', '')
-      }
-      if (result.name !== undefined) {
-        form.setValue('name', result.name)
-      } else {
-        form.setValue('name', '')
-      }
-      if (result.volume !== undefined) {
-        form.setValue('volume', result.volume.toString())
-      } else {
-        form.setValue('volume', '')
-      }
-      if (result.caffeineConcentration !== undefined) {
-        setCaffeineConcentration(result.caffeineConcentration.toString())
-      } else if (result.caffeine !== undefined && result.volume !== undefined) {
-        setCaffeineConcentration((result.caffeine / Math.min(1, result.volume) * 100).toString())
-      } else {
-        setCaffeineConcentration('')
-      }
-      if (result.alcoholPercent !== undefined) {
-        setAlcoholPercent(result.alcoholPercent.toString())
-      } else if (result.alcohol !== undefined && result.volume !== undefined) {
-        setAlcoholPercent((result.alcohol / Math.min(1, result.volume) * 100).toString())
-      } else {
-        setAlcoholPercent('')
-      }
-      if (result.alcohol !== undefined) {
-        form.setValue('alcohol', result.alcohol.toString())
-      } else if (result.volume !== undefined && result.alcoholPercent !== undefined) {
-        form.setValue('alcohol', (result.volume * result.alcoholPercent / 100).toString())
-      } else {
-        form.setValue('alcohol', '')
-      }
-      if (result.caffeine !== undefined) {
-        form.setValue('caffeine', result.caffeine.toString())
-      } else if (result.volume !== undefined && result.caffeineConcentration !== undefined) {
-        form.setValue('caffeine', (result.volume * result.caffeineConcentration / 100).toString())
-      } else {
-        form.setValue('caffeine', '')
-      }
-    }).finally(() => {
-      setPending(false)
-    })
-  }
 
   return <> 
     <div className={styles.headerString}>
       <h3>Item edit</h3>
-      <Button className={styles.buttonAi} onClick={() => doAiMagic()} disabled={isPending}>🪄 AI 🪄</Button>
     </div>
     <form onSubmit={form.handleSubmit(onSubmit)}>
       <div className={styles.inputRow}>
@@ -189,12 +136,6 @@ export function ItemEditPage() {
             ${fieldState.invalid ? styles.inputInvalid : ''}`} {...field}/>}/>
           <div>ml</div>
         </div>
-      </div>
-      <div className={styles.inputRowCheckBox}>
-        <Controller name={"filled"} control={form.control} render={({ field }) => 
-            <input checked={field.value} onChange={e => field.onChange(e.target.checked)} 
-              disabled={field.disabled} ref={field.ref} onBlur={field.onBlur} type={"checkbox"}/>}/>
-        <div>filled?</div>
       </div>
       <Button type={"submit"} className={styles.buttonSave}>Save</Button>
     </form>

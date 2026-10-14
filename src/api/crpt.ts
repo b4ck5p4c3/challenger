@@ -163,6 +163,7 @@ export interface CrptCheckV2Result {
 export class CrptAPI {
   async checkDataMatrix (dataMatrix: string): Promise<CrptCheckV2Result> {
     const response = await fetch(`${CRPT_HOST}/v2/mobile/check`, {
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         code: dataMatrix,
         codeType: 'datamatrix',
@@ -185,6 +186,7 @@ export class CrptAPI {
 
   async checkEan (ean: string): Promise<CrptCheckResult> {
     const response = await fetch(`${CRPT_HOST}/mobile/check`, {
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         code: ean,
         codeType: 'ean13',

@@ -11,6 +11,30 @@
   align-items: center;
 }
 
+.stats {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 20px;
+}
+
+.stat,
+.headerMenu > a {
+  color: white;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.stat b {
+  color: white;
+}
+
 .headerMenu {
   display: flex;
   flex-direction: row;
@@ -19,7 +43,7 @@
 }
 
 .headerMenu > a {
-  color: white;
+  text-decoration: none;
 }
 
 .main {
