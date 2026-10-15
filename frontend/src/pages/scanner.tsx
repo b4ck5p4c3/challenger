@@ -7,10 +7,10 @@ import styles from './scanner.module.css'
 
 function resultText(result: ScanResult): string {
   switch (result.type) {
-    case 'ean_registered': return 'Банка добавлена. Пожалуйста, сканируйте ЧестныйЗнак.'
-    case 'chestny_znak_paired': return 'ЧестныйЗнак добавлен к ранее отсканированной банке.'
-    case 'chestny_znak_registered_without_ean': return 'Банка с ЧестнымЗнаком добавлена.'
-    case 'duplicate_chestny_znak': return 'Эта банка уже добавлена.'
+    case 'ean_registered': return 'Добавлена без ЧестногоЗнака! ☆⌒(>。<) Пожалуйста, сканируйте ЧестныйЗнак'
+    case 'chestny_znak_paired': return 'ЧестныйЗнак добавлен к ранее отсканированной банке (❤ω❤)'
+    case 'chestny_znak_registered_without_ean': return 'Банка добавлена ( ◕▿◕ )'
+    case 'duplicate_chestny_znak': return 'Эта банка уже была добавлена o(TヘTo)'
     case 'unsupported':
     case 'error': return result.msg
   }
@@ -22,7 +22,7 @@ export function ScannerPage() {
   const generation = useRef(0)
   const [active, setActive] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState('Let’s danec!')
+  const [msg, setMsg] = useState(' ')
   const [rawCode, setRawCode] = useState('')
   const queryClient = useQueryClient()
 
@@ -38,11 +38,25 @@ export function ScannerPage() {
     controls.current?.stop()
   }, [])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch(`${import.meta.env.BASE_URL}splashes.txt`, { signal: controller.signal })
+      .then(response => response.ok ? response.text() : Promise.reject(new Error('Failed to load splashes')))
+      .then(content => {
+        const splashes = content.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+        if (splashes.length > 0 && !controller.signal.aborted) {
+          setMsg(splashes[Math.floor(Math.random() * splashes.length)] ?? 'oopsie~')
+        }
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
   async function send(code: string, codeType: 'ean13' | 'chestny_znak') {
     const escapedCode = escapeSpecialCharacters(code)
     setBusy(true)
     setRawCode(escapedCode)
-    setMsg('Обработка…')
+    setMsg('Invalidating this bullshit...')
     try {
       setMsg(resultText(await submitScan(escapedCode, codeType)))
       await queryClient.invalidateQueries()
