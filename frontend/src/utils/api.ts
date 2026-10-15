@@ -136,10 +136,17 @@ export type ScanResult =
   | { type: 'duplicate_chestny_znak' }
   | { type: 'unsupported' | 'error'; msg: string }
 
+const controlCharacterPattern = /[\u0000-\u001F\u007F-\u009F]/g
+
+export function escapeSpecialCharacters (value: string): string {
+  return value.replace(controlCharacterPattern, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}`)
+}
+
 export function submitScan(rawCode: string, codeType: 'ean13' | 'chestny_znak'): Promise<ScanResult> {
+  const escapedCode = escapeSpecialCharacters(rawCode)
   return request('/scans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rawCode, codeType, adapterId: 'web-camera', correlationId: crypto.randomUUID() })
+    body: JSON.stringify({ rawCode: escapedCode, codeType, adapterId: 'web-camera', correlationId: crypto.randomUUID() })
   })
 }

@@ -1,4 +1,4 @@
-import { isChestnyZnak, type ScanInput, type ScanResult } from '../domain/scanning'
+import { escapeSpecialCharacters, isChestnyZnak, type ScanInput, type ScanResult } from '../domain/scanning'
 import { getLogger } from '../logger'
 import { FontSet, Shuttle, ShuttleClient, ShuttleServer, StringAlignment } from './protocol'
 
@@ -34,7 +34,7 @@ export class ShuttleAdapter {
       queue = queue.then(async () => {
         await shuttle.sendEnableScanning(false)
         await this.handleResult(shuttle, { type: 'processing' })
-        const rawCode = data.toString('ascii')
+        const rawCode = escapeSpecialCharacters(data.toString('ascii'))
         const codeType = classify(rawCode)
         this.logger.debug(`Shuttle scan received: bytes=${data.length}, characters=${rawCode.length}, text=${JSON.stringify(rawCode)}, hex=${data.toString('hex')}`)
         this.logger.debug(`Shuttle scan classified as: ${codeType ?? 'unsupported'}`)

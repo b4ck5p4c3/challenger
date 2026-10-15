@@ -8,6 +8,7 @@ import z from 'zod'
 import { CrptAPI } from './api/crpt'
 import { EdadealAPI } from './api/edadeal'
 import { ScanService } from './application/scan-service'
+import { escapeSpecialCharacters } from './domain/scanning'
 import { ShuttleAdapter } from './shuttle/adapter'
 import { getEnvironment } from './environment'
 import { PrismaClient } from './generated/prisma/client'
@@ -46,7 +47,7 @@ app.post('/api/scans', async (request, response) => {
   response.json(await scanService.process({
     adapterId: parsed.data.adapterId,
     codeType: parsed.data.codeType,
-    rawCode: parsed.data.rawCode,
+    rawCode: escapeSpecialCharacters(parsed.data.rawCode),
     receivedAt: new Date(),
     ...(parsed.data.correlationId === undefined ? {} : { correlationId: parsed.data.correlationId })
   }))

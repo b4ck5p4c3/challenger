@@ -5,6 +5,7 @@ import {
   normalizeGtin,
   parseChestnyZnak,
   parseEan13,
+  escapeSpecialCharacters,
   type ScanInput,
   type ScanResult
 } from '../domain/scanning'
@@ -23,7 +24,8 @@ export class ScanService {
 
   process (input: ScanInput): Promise<ScanResult> {
     // Serialize registration and pairing so two scans cannot claim the same unit.
-    const result = this.queue.then(() => this.processInput(input))
+    const normalizedInput = { ...input, rawCode: escapeSpecialCharacters(input.rawCode) }
+    const result = this.queue.then(() => this.processInput(normalizedInput))
     this.queue = result.catch(() => {})
     return result
   }

@@ -24,6 +24,19 @@ export type ParsedChestnyZnak = {
   verificationCode: string
 }
 
+export const FNC1_ESCAPE = '\\u001D'
+
+const controlCharacterPattern = /[\u0000-\u001F\u007F-\u009F]/g
+
+export function escapeSpecialCharacters (value: string): string {
+  return value.replace(controlCharacterPattern, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}`)
+}
+
+function findFnc1 (value: string, fromIndex: number): number {
+  const match = /\\u001[dD]/.exec(value.slice(fromIndex))
+  return match ? fromIndex + match.index : -1
+}
+
 export function normalizeGtin (value: string): string {
   if (!/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(value)) {
     throw new Error('GTIN must contain 8, 12, 13 or 14 digits')
@@ -42,7 +55,7 @@ export function isChestnyZnak (value: string): boolean {
   if (!value.startsWith('01')) return false
   if (!/^\d{14}$/.test(value.slice(2, 16))) return false
   if (value.slice(16, 18) !== '21') return false
-  return value.indexOf('\u001d', 18) > 18
+  return findFnc1(value, 18) > 18
 }
 
 export function parseChestnyZnak (value: string): ParsedChestnyZnak {
@@ -51,9 +64,9 @@ export function parseChestnyZnak (value: string): ParsedChestnyZnak {
   }
 
   const gtin = value.slice(2, 16)
-  const separatorIndex = value.indexOf('\u001d', 18)
+  const separatorIndex = findFnc1(value, 18)
   const serial = value.slice(18, separatorIndex)
-  const verificationCode = value.slice(separatorIndex + 1)
+  const verificationCode = value.slice(separatorIndex + FNC1_ESCAPE.length)
 
   return {
     code: value,

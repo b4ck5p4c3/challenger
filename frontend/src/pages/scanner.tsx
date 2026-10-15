@@ -2,7 +2,7 @@ import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 import { BarcodeFormat, DecodeHintType } from '@zxing/library'
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { submitScan, type ScanResult } from '../utils/api'
+import { escapeSpecialCharacters, submitScan, type ScanResult } from '../utils/api'
 import styles from './scanner.module.css'
 
 function resultText(result: ScanResult): string {
@@ -22,7 +22,7 @@ export function ScannerPage() {
   const generation = useRef(0)
   const [active, setActive] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState('EAN13 или ЧестныйЗнак — по одному сканированию за запуск.')
+  const [msg, setMsg] = useState('Let’s danec!')
   const [rawCode, setRawCode] = useState('')
   const queryClient = useQueryClient()
 
@@ -39,11 +39,12 @@ export function ScannerPage() {
   }, [])
 
   async function send(code: string, codeType: 'ean13' | 'chestny_znak') {
+    const escapedCode = escapeSpecialCharacters(code)
     setBusy(true)
-    setRawCode(code)
+    setRawCode(escapedCode)
     setMsg('Обработка…')
     try {
-      setMsg(resultText(await submitScan(code, codeType)))
+      setMsg(resultText(await submitScan(escapedCode, codeType)))
       await queryClient.invalidateQueries()
     } catch (error) {
       setMsg(String(error))
@@ -103,7 +104,7 @@ export function ScannerPage() {
         stop()
         void send(rawCode, /^\d{13}$/.test(rawCode) ? 'ean13' : 'chestny_znak')
       }}>
-        <label htmlFor="raw-code">Enter manually (try \u001d for FNC1)</label>
+        <label htmlFor="raw-code">{'Enter manually (try \u001d for FNC1)'}</label>
         <input id="raw-code" value={rawCode} onChange={event => setRawCode(event.target.value)} autoComplete="off" />
         <button disabled={busy || !rawCode}>SEND</button>
       </form>
