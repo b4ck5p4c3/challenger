@@ -2,13 +2,20 @@
   "name": "challenger",
   "version": "1.0.0",
   "description": "Server for Shuttle+ scanner",
+  "workspaces": [
+    ".",
+    "frontend"
+  ],
   "scripts": {
     "start": "bun src/main.ts",
-    "contract:emit": "bunx --bun prisma contract emit",
     "dev": "bun run --watch src/main.ts -vvv",
     "build": "bun build --compile --minify --sourcemap ./src/main.ts --outfile ./dist/challenger",
     "lint": "eslint src",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+
+    "dev:all": "bun --filter '*' dev",
+    "dev:fe": "bun --filter frontend dev",
+    "build:fe": "bun --filter frontend build"
   },
   "keywords": [],
   "author": "",

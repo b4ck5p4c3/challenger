@@ -6,22 +6,22 @@ Scanner software for Shuttle+ SG15
 
 ```shell
 # ∠( ᐛ 」∠)_
-pnpm install
-pnpm --dir frontend install
-# 〜〜(／￣▽)／　〜ф
-bunx prisma generate
-bunx prisma db push
+pnpm i --fix-lockfile
 # _(:3 」∠)_
 cat >.env <<'EOF'
-DATABASE_URL="postgresql://..."
+DATABASE_URL="postgresql://..."НеН
 WEB_SERVER_PORT="8080"
 FRONTEND_DIR="frontend/dist"
 SHUTTLE_SERVER_PORT="1337"
 
-SHUTTLE_CLIENT_HOST="192.168.1.42"
-SHUTTLE_CLIENT_PORT="1337"
+# SHUTTLE_CLIENT_HOST="192.168.1.42"
+# SHUTTLE_CLIENT_PORT="1337"
 EOF
+# 〜〜(／￣▽)／　〜ф
+bunx prisma generate
+bunx prisma db push
 # :3c
+bun run build:fe
 bun run start
 ```
 

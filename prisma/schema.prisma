@@ -18,7 +18,7 @@ model Product {
   alcohol       Decimal       @db.Decimal(10, 4)
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
-  productCodes  ProductCode[] @map("product_codes")
+  productCodes  ProductCode[]
 }
 
 model ProductCode {
@@ -32,7 +32,7 @@ model ProductCode {
   edadealData Json?       @db.JsonB @map("edadeal_data")
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
-  scanUnits   ScanUnit[]  @map("scan_units")
+  scanUnits   ScanUnit[]
 
   @@index([productId])
 }
@@ -42,7 +42,7 @@ model ScanUnit {
 
   id              String      @id @default(uuid())
   productCodeId   String      @map("product_code_id")
-  productCode     ProductCode @relation(fields: [productCodeId], references: [id]) @map("product_code")
+  productCode     ProductCode @relation(fields: [productCodeId], references: [id])
   chestnyZnakCode String?     @unique @map("chestny_znak_code")
   chestnyZnakData Json?       @db.JsonB @map("chestny_znak_data")
   createdAt       DateTime    @default(now()) @map("created_at")
