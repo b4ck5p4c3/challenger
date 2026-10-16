@@ -18,7 +18,8 @@ import { ShuttleClient, ShuttleServer } from './shuttle/protocol'
 const logger = getLogger()
 const environment = getEnvironment()
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: environment.DATABASE_URL }) })
-const scanService = new ScanService(prisma, new CrptAPI(), new EdadealAPI())
+const crptAPI = new CrptAPI()
+const scanService = new ScanService(prisma, crptAPI, new EdadealAPI())
 const shuttleEndpoint = environment.SHUTTLE_CLIENT_HOST
   ? new ShuttleClient(environment.SHUTTLE_CLIENT_HOST, environment.SHUTTLE_CLIENT_PORT)
   : new ShuttleServer(environment.SHUTTLE_SERVER_PORT)
@@ -290,6 +291,52 @@ app.delete('/api/scan-units/:id', async (request, response) => {
   }
 })
 
+const scanUnitPatch = z.object({
+  chestnyZnakCode: z.string().min(1).nullable().optional(),
+  productCodeId: z.string().min(1).optional()
+})
+
+app.patch('/api/scan-units/:id', async (request, response) => {
+  const parsed = scanUnitPatch.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_SCAN_UNIT', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  try {
+    const scanUnit = await prisma.scanUnit.findUnique({ where: { id: request.params.id } })
+    if (!scanUnit) {
+      response.status(404).json({ code: 'SCAN_UNIT_NOT_FOUND', msg: 'ScanUnit was not found', type: 'error' })
+      return
+    }
+
+    if (parsed.data.productCodeId !== undefined) {
+      const productCode = await prisma.productCode.findUnique({ where: { id: parsed.data.productCodeId } })
+      if (!productCode) {
+        response.status(404).json({ code: 'PRODUCT_CODE_NOT_FOUND', msg: 'ProductCode was not found', type: 'error' })
+        return
+      }
+    }
+
+    const updated = await prisma.scanUnit.update({
+      data: {
+        ...(parsed.data.chestnyZnakCode !== undefined && {
+          chestnyZnakCode: parsed.data.chestnyZnakCode === null
+            ? null
+            : escapeSpecialCharacters(parsed.data.chestnyZnakCode)
+        }),
+        ...(parsed.data.productCodeId !== undefined && { productCodeId: parsed.data.productCodeId })
+      },
+      include: { productCode: { include: { product: true } } },
+      where: { id: request.params.id }
+    })
+    response.json(updated)
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
 app.get('/api/scan-units/:id', async (request, response) => {
   const scanUnit = await prisma.scanUnit.findUnique({
     include: { productCode: { include: { product: true } } },
@@ -300,6 +347,32 @@ app.get('/api/scan-units/:id', async (request, response) => {
     return
   }
   response.json(scanUnit)
+})
+
+app.post('/api/scan-units/:id/crpt-data', async (request, response) => {
+  try {
+    const scanUnit = await prisma.scanUnit.findUnique({ where: { id: request.params.id } })
+    if (!scanUnit) {
+      response.status(404).json({ code: 'SCAN_UNIT_NOT_FOUND', msg: 'ScanUnit was not found', type: 'error' })
+      return
+    }
+    const chestnyZnakCode = scanUnit.chestnyZnakCode
+    if (!chestnyZnakCode) {
+      response.status(400).json({ code: 'CHESTNY_ZNAK_NOT_FOUND', msg: 'ScanUnit has no Chestny Znak code', type: 'error' })
+      return
+    }
+
+    const crptData = await crptAPI.checkDataMatrix(chestnyZnakCode)
+    const updated = await prisma.scanUnit.update({
+      data: { chestnyZnakData: JSON.parse(JSON.stringify(crptData)) as never },
+      include: { productCode: { include: { product: true } } },
+      where: { id: scanUnit.id }
+    })
+    response.json(updated)
+  } catch (error) {
+    logger.error(error)
+    response.status(502).json({ code: 'CRPT_FAILED', msg: String(error), type: 'error' })
+  }
 })
 
 app.get('/api/stats', async (_, response) => {

@@ -11,6 +11,10 @@ import {
   ITEMS_QUERY_KEY,
   STATS_QUERY_KEY,
   request,
+  updateCrptData,
+  updateScanUnit,
+  type Item,
+  type ProductCode,
   type ProductInput
 } from '../utils/api'
 import styles from './history.module.css'
@@ -27,12 +31,31 @@ function emptyDraft (): ProductDraft {
   return { alcohol: '0', brand: '', caffeine: '0', name: '', volume: '0' }
 }
 
+function productInputFromDraft (draft: ProductDraft): ProductInput | null {
+  const input: ProductInput = {
+    alcohol: Number.parseFloat(draft.alcohol),
+    brand: draft.brand.trim(),
+    caffeine: Number.parseFloat(draft.caffeine),
+    name: draft.name.trim(),
+    volume: Number.parseFloat(draft.volume)
+  }
+  const valuesAreValid = [input.volume, input.caffeine, input.alcohol].every(value => Number.isFinite(value) && value >= 0)
+  return input.brand && input.name && valuesAreValid ? input : null
+}
+
 export function HistoryPage() {
   const [page, setPage] = useState(1)
   const [createCodeId, setCreateCodeId] = useState<string | null>(null)
   const [attachCodeId, setAttachCodeId] = useState<string | null>(null)
   const [attachProductId, setAttachProductId] = useState('')
   const [attachCanCreate, setAttachCanCreate] = useState(false)
+  const [redactScanUnit, setRedactScanUnit] = useState<{
+    id: string
+    productCode: { id: string; gtin: string }
+    chestnyZnakCode: string | null
+  } | null>(null)
+  const [redactProductCodeId, setRedactProductCodeId] = useState('')
+  const [redactChestnyZnakCode, setRedactChestnyZnakCode] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [draft, setDraft] = useState<ProductDraft>(emptyDraft)
   const [busy, setBusy] = useState(false)
@@ -46,36 +69,56 @@ export function HistoryPage() {
     queryFn: getItems,
     queryKey: [ITEMS_QUERY_KEY]
   })
+  const productCodes = useQuery({
+    queryFn: () => request<ProductCode[]>('/product-codes'),
+    queryKey: ['product-codes']
+  })
 
-  function startCreate (codeId: string) {
+  function closeEditor () {
+    setCreateCodeId(null)
     setAttachCodeId(null)
     setAttachCanCreate(false)
+    setRedactScanUnit(null)
+    setRedactProductCodeId('')
+    setRedactChestnyZnakCode('')
     setProductSearch('')
+  }
+
+  function startCreate (codeId: string) {
+    closeEditor()
     setCreateCodeId(codeId)
     setDraft(emptyDraft())
   }
 
-  function startAttach (codeId: string, currentProductId: string | null) {
-    setCreateCodeId(null)
-    setAttachCodeId(codeId)
-    setAttachCanCreate(currentProductId === null)
+  function startAttach (item: {
+    id: string
+    productCode: { id: string; gtin: string; productId: string | null; product?: Item | null }
+    chestnyZnakCode: string | null
+  }) {
+    closeEditor()
+    setAttachCodeId(item.productCode.id)
+    setAttachCanCreate(item.productCode.productId === null)
+    setRedactScanUnit(item)
+    setRedactProductCodeId(item.productCode.id)
+    setRedactChestnyZnakCode(item.chestnyZnakCode ?? '')
     setProductSearch('')
-    setAttachProductId(currentProductId ?? products.data?.[0]?.id ?? '')
+    setAttachProductId(item.productCode.productId ?? products.data?.[0]?.id ?? '')
+  }
+
+  function startRedact () {
+    if (!redactScanUnit) return
+    const scanUnit = redactScanUnit
+    closeEditor()
+    setRedactScanUnit(scanUnit)
+    setRedactProductCodeId(scanUnit.productCode.id)
+    setRedactChestnyZnakCode(scanUnit.chestnyZnakCode ?? '')
   }
 
   async function submitCreate (event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!createCodeId) return
-    const input: ProductInput = {
-      alcohol: Number.parseFloat(draft.alcohol),
-      brand: draft.brand.trim(),
-      caffeine: Number.parseFloat(draft.caffeine),
-      name: draft.name.trim(),
-      volume: Number.parseFloat(draft.volume)
-    }
-    if (!input.brand || !input.name || Object.values(input).some(value => typeof value === 'number' && !Number.isFinite(value))) {
-      return
-    }
+    const input = productInputFromDraft(draft)
+    if (!input) return
 
     setBusy(true)
     try {
@@ -85,7 +128,7 @@ export function HistoryPage() {
         queryClient.invalidateQueries({ queryKey: [ITEMS_QUERY_KEY] }),
         queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
       ])
-      setCreateCodeId(null)
+      closeEditor()
     } catch (error) {
       alert(String(error))
     } finally {
@@ -104,8 +147,42 @@ export function HistoryPage() {
         queryClient.invalidateQueries({ queryKey: [ITEMS_QUERY_KEY] }),
         queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
       ])
-      setAttachCodeId(null)
-      setAttachCanCreate(false)
+      closeEditor()
+    } catch (error) {
+      alert(String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitRedact (event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!redactScanUnit || !redactProductCodeId) return
+
+    setBusy(true)
+    try {
+      await updateScanUnit(redactScanUnit.id, {
+        chestnyZnakCode: redactChestnyZnakCode.trim() || null,
+        productCodeId: redactProductCodeId
+      })
+      await Promise.all([
+        history.refetch(),
+        queryClient.invalidateQueries({ queryKey: [STATS_QUERY_KEY] })
+      ])
+      closeEditor()
+    } catch (error) {
+      alert(String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitCrptData () {
+    if (!redactScanUnit?.id || !redactScanUnit.chestnyZnakCode) return
+    setBusy(true)
+    try {
+      await updateCrptData(redactScanUnit.id)
+      await history.refetch()
     } catch (error) {
       alert(String(error))
     } finally {
@@ -140,14 +217,19 @@ export function HistoryPage() {
       </div>
       <div className={styles.editorActions}>
         <Button type="submit" disabled={busy}>Create and attach</Button>
-        <Button type="button" onClick={() => setCreateCodeId(null)} disabled={busy}>Cancel</Button>
+        <Button type="button" onClick={closeEditor} disabled={busy}>Cancel</Button>
       </div>
     </form>}
 
     {attachCodeId && <form className={styles.editor} onSubmit={event => void submitAttach(event)}>
       <div className={styles.editorHeader}>
         <strong>Attach GTIN to an existing product</strong>
-        <Button type="button" onClick={() => startCreate(attachCodeId)} disabled={busy || !attachCanCreate}>Create</Button>
+        <div className={styles.editorActions}>
+          <Button type="button" onClick={() => startCreate(attachCodeId)} disabled={busy || !attachCanCreate}>Create</Button>
+          <Button type="button" onClick={() => {
+            startRedact()
+          }} disabled={busy || !redactScanUnit}>Redact</Button>
+        </div>
       </div>
       <label className={styles.selectLabel}>Search by name
         <input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Type a product name" disabled={busy} />
@@ -159,7 +241,27 @@ export function HistoryPage() {
       </label>
       <div className={styles.editorActions}>
         <Button type="submit" disabled={busy || !attachProductId}>Attach</Button>
-        <Button type="button" onClick={() => setAttachCodeId(null)} disabled={busy}>Cancel</Button>
+        <Button type="button" onClick={closeEditor} disabled={busy}>Cancel</Button>
+      </div>
+    </form>}
+
+    {!createCodeId && !attachCodeId && redactScanUnit && <form className={styles.editor} onSubmit={event => void submitRedact(event)}>
+      <div className={styles.editorHeader}>
+        <strong>Redact scan</strong>
+        <Button type="button" onClick={() => void submitCrptData()} disabled={busy || !redactScanUnit.chestnyZnakCode}>Updated CRPT data</Button>
+      </div>
+      <label className={styles.selectLabel}>Product code
+        <select value={redactProductCodeId} onChange={event => setRedactProductCodeId(event.target.value)} disabled={busy}>
+          {!productCodes.data?.some(productCode => productCode.id === redactProductCodeId) && <option value={redactProductCodeId}>{redactScanUnit.productCode.gtin}</option>}
+          {productCodes.data?.map(productCode => <option key={productCode.id} value={productCode.id}>{productCode.gtin}</option>)}
+        </select>
+      </label>
+      <label className={styles.selectLabel}>Chestny Znak code
+        <input value={redactChestnyZnakCode} onChange={event => setRedactChestnyZnakCode(event.target.value)} disabled={busy} />
+      </label>
+      <div className={styles.editorActions}>
+        <Button type="submit" disabled={busy}>Save</Button>
+        <Button type="button" onClick={closeEditor} disabled={busy}>Cancel</Button>
       </div>
     </form>}
 
@@ -181,9 +283,7 @@ export function HistoryPage() {
             <td>{item.productCode.product ? `${item.productCode.product.brand} - ${item.productCode.product.name}` : <span className={styles.unassigned}>Unassigned</span>}</td>
             <td><Link to={`/records/scan-units/${item.id}`}>{item.chestnyZnakCode ?? 'No Chestny Znak'}</Link></td>
             <td className={styles.actions}>
-              <Button onClick={() => startAttach(item.productCode.id, item.productCode.productId)} disabled={busy || !products.data?.length}>
-                {item.productCode.product ? 'Change' : 'Attach'}
-              </Button>
+              <Button onClick={() => startAttach(item)} disabled={busy}>Edit</Button>
               <Button onClick={async () => {
                 if (!confirm('Delete this scan?')) return
                 try {

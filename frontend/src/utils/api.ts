@@ -75,6 +75,23 @@ export function getHistory(page: number): Promise<HistoryPage> {
 
 export const HISTORY_QUERY_KEY = 'history'
 
+export interface ScanUnitInput {
+  productCodeId?: string
+  chestnyZnakCode?: string | null
+}
+
+export async function updateScanUnit(id: string, data: ScanUnitInput): Promise<void> {
+  await request(`/scan-units/${id}`, {
+    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'PATCH'
+  })
+}
+
+export async function updateCrptData(scanUnitId: string): Promise<void> {
+  await request(`/scan-units/${scanUnitId}/crpt-data`, { method: 'POST' })
+}
+
 export interface Stats {
   day: StatsPeriod
   month: StatsPeriod
