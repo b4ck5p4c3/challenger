@@ -56,7 +56,7 @@ export function ScannerPage() {
     const escapedCode = escapeSpecialCharacters(code)
     setBusy(true)
     setRawCode(escapedCode)
-    setMsg('Invalidating this bullshit...')
+    setMsg('ヘ(◕。◕ヘ)')
     try {
       setMsg(resultText(await submitScan(escapedCode, codeType)))
       await queryClient.invalidateQueries()
@@ -118,7 +118,7 @@ export function ScannerPage() {
         stop()
         void send(rawCode, /^\d{13}$/.test(rawCode) ? 'ean13' : 'chestny_znak')
       }}>
-        <label htmlFor="raw-code">{'Enter manually (try \u001d for FNC1)'}</label>
+        <label htmlFor="raw-code">{'Enter manually (try \\u001d for FNC1)'}</label>
         <input id="raw-code" value={rawCode} onChange={event => setRawCode(event.target.value)} autoComplete="off" />
         <button disabled={busy || !rawCode}>SEND</button>
       </form>
