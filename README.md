@@ -30,6 +30,8 @@ If it is omitted, the default value is `public`. Use `bun run start -vvv` to pri
 
 ## Development
 
+**[Shuttle Command Markup Language (SCML) and Interpreter](./SCML.md)**
+
 ### ~~living~~ existing here
 
 - backend на TypeScript;

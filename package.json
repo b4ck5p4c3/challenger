@@ -8,8 +8,10 @@
   ],
   "scripts": {
     "start": "bun src/main.ts",
+    "scml": "bun src/scml-main.ts",
     "dev": "bun run --watch src/main.ts -vvv",
     "build": "bun build --compile --minify --sourcemap ./src/main.ts --outfile ./dist/challenger",
+    "build:scml": "bun build --compile --minify --sourcemap ./src/scml-main.ts --outfile ./dist/scml",
     "lint": "eslint src",
     "check": "tsc --noEmit",
 
