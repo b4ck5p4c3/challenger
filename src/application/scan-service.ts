@@ -68,7 +68,7 @@ export class ScanService {
       where: { chestnyZnakCode: parsed.code }
     })
     if (existing) {
-      return { message: 'already_added', type: 'duplicate_chestny_znak' }
+      return { message: 'already_added', scanUnitId: existing.id, type: 'duplicate_chestny_znak' }
     }
 
     const productCode = await this.getOrCreateProductCode(parsed.gtin)

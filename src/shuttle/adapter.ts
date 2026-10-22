@@ -1,9 +1,20 @@
-import { escapeSpecialCharacters, isChestnyZnak, type ScanInput, type ScanResult } from '../domain/scanning'
+import {
+  escapeSpecialCharacters,
+  isChestnyZnak,
+  type ScanInput,
+  type ScanResult,
+  type ScanStats,
+  type ScanTemplateContext,
+  type ScanTemplateScanUnit
+} from '../domain/scanning'
 import { getLogger } from '../logger'
-import { FontSet, Shuttle, ShuttleClient, ShuttleServer, StringAlignment } from './protocol'
+import { Shuttle, ShuttleClient, ShuttleServer } from './protocol'
 
 type ShuttleEndpoint = ShuttleClient | ShuttleServer
 type ScanHandler = (input: ScanInput) => Promise<ScanResult>
+type StatsReader = () => Promise<ScanStats>
+type ScanUnitReader = (id: string) => Promise<ScanTemplateScanUnit | null>
+type TemplateSender = (shuttle: Shuttle, context: ScanTemplateContext) => Promise<void>
 
 function classify (rawCode: string): ScanInput['codeType'] | null {
   if (/^\d{13}$/.test(rawCode)) return 'ean13'
@@ -15,7 +26,13 @@ export class ShuttleAdapter {
   readonly id = 'shuttle'
   private readonly logger = getLogger<ShuttleAdapter>()
 
-  constructor (private readonly endpoint: ShuttleEndpoint, private readonly handleScan: ScanHandler) {
+  constructor (
+    private readonly endpoint: ShuttleEndpoint,
+    private readonly handleScan: ScanHandler,
+    private readonly readStats: StatsReader,
+    private readonly readScanUnit: ScanUnitReader,
+    private readonly sendTemplate: TemplateSender
+  ) {
     endpoint.on('connection', shuttle => this.handleConnection(shuttle))
   }
 
@@ -33,29 +50,42 @@ export class ShuttleAdapter {
     shuttle.on('scan', data => {
       queue = queue.then(async () => {
         await shuttle.sendEnableScanning(false)
-        await this.handleResult(shuttle, { type: 'processing' })
         const rawCode = escapeSpecialCharacters(data.toString('ascii'))
         const codeType = classify(rawCode)
-        this.logger.debug(`Shuttle scan received: bytes=${data.length}, characters=${rawCode.length}, text=${JSON.stringify(rawCode)}, hex=${data.toString('hex')}`)
-        this.logger.debug(`Shuttle scan classified as: ${codeType ?? 'unsupported'}`)
-        const result = codeType
-          ? await this.handleScan({
+        const receivedAt = new Date()
+        const scan = {
+          adapterId: this.id,
+          codeType,
+          rawCode,
+          receivedAt: receivedAt.toISOString()
+        }
+        const input = codeType
+          ? {
             adapterId: this.id,
             codeType,
             rawCode,
-            receivedAt: new Date()
-          })
+            receivedAt
+          }
+          : undefined
+        const statsBefore = await this.readStatsSafely()
+        await this.sendTemplate(shuttle, this.createContext(scan, { type: 'processing' }, null, statsBefore, null))
+        this.logger.debug(`Shuttle scan received: bytes=${data.length}, characters=${rawCode.length}, text=${JSON.stringify(rawCode)}, hex=${data.toString('hex')}`)
+        this.logger.debug(`Shuttle scan classified as: ${codeType ?? 'unsupported'}`)
+        const result: ScanResult = input
+          ? await this.handleScan(input)
           : {
             code: 'UNSUPPORTED_CODE',
-            msg: 'Unsupported scanner input',
             type: 'unsupported'
-          } satisfies ScanResult
+          }
 
         if (!codeType) {
           this.logger.warn(`Unsupported Shuttle scan: bytes=${data.length}, characters=${rawCode.length}`)
         }
 
-        await this.handleResult(shuttle, result)
+        const statsAfter = await this.readStatsSafely()
+        const scanUnitId = 'scanUnitId' in result ? result.scanUnitId : undefined
+        const scanUnit = scanUnitId === undefined ? null : await this.readScanUnitSafely(scanUnitId)
+        await this.sendTemplate(shuttle, this.createContext(scan, result, scanUnit, statsBefore, statsAfter))
         await shuttle.sendEnableScanning(true)
       }).catch(error => {
         console.error('Shuttle adapter connection disabled:', error)
@@ -64,27 +94,41 @@ export class ShuttleAdapter {
     })
   }
 
-  private async handleResult (shuttle: Shuttle, result: ScanResult): Promise<void> {
-    await shuttle.sendClearDisplayAndMoveToTopLeft()
-    await shuttle.sendSelectFontSet(FontSet.NORMAL)
-    const value = this.messageFor(result)
-    let line = ''
-    for (const char of value) {
-      if (Buffer.byteLength(line + char, 'utf8') > 75) break
-      line += char
+  private async readStatsSafely (): Promise<ScanStats | null> {
+    try {
+      return await this.readStats()
+    } catch (error) {
+      this.logger.warn('failed to read scan statistics for Shuttle template:', error)
+      return null
     }
-    await shuttle.sendPrintAlignedString(StringAlignment.CENTER_CENTER, line)
   }
 
-  private messageFor (result: ScanResult): string {
-    switch (result.type) {
-      case 'processing': return 'Processing...'
-      case 'ean_registered': return 'Сканируйте ЧестныйЗнак'
-      case 'chestny_znak_paired': return 'Сохранено'
-      case 'chestny_znak_registered_without_ean': return 'Сохранено без EAN'
-      case 'duplicate_chestny_znak': return 'Уже добавлено'
-      case 'unsupported': return result.msg
-      case 'error': return result.msg
+  private async readScanUnitSafely (id: string): Promise<ScanTemplateScanUnit | null> {
+    try {
+      return await this.readScanUnit(id)
+    } catch (error) {
+      this.logger.warn('failed to read scan unit for Shuttle template:', error)
+      return null
+    }
+  }
+
+  private createContext (
+    scan: ScanTemplateContext['scan'],
+    result: ScanResult,
+    scanUnit: ScanTemplateScanUnit | null,
+    statsBefore: ScanStats | null,
+    statsAfter: ScanStats | null
+  ): ScanTemplateContext {
+    const resultData = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'cause'))
+    return {
+      result: resultData,
+      scan,
+      scanUnit,
+      situation: result.type,
+      stats: {
+        after: statsAfter,
+        before: statsBefore
+      }
     }
   }
 }

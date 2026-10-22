@@ -8,45 +8,56 @@ datasource db {
 }
 
 model Product {
-  @@map("products")
+  id           String        @id @default(uuid())
+  brand        String
+  name         String
+  volume       Decimal       @db.Decimal(10, 4)
+  caffeine     Decimal       @db.Decimal(10, 4)
+  alcohol      Decimal       @db.Decimal(10, 4)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  productCodes ProductCode[]
 
-  id            String        @id @default(uuid())
-  brand         String
-  name          String
-  volume        Decimal       @db.Decimal(10, 4)
-  caffeine      Decimal       @db.Decimal(10, 4)
-  alcohol       Decimal       @db.Decimal(10, 4)
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
-  productCodes  ProductCode[]
+  @@map("products")
 }
 
 model ProductCode {
-  @@map("product_codes")
-
-  id          String      @id @default(uuid())
-  gtin        String      @unique
-  productId   String?     @map("product_id")
-  product     Product?    @relation(fields: [productId], references: [id])
-  crptData    Json?       @db.JsonB @map("crpt_data")
-  edadealData Json?       @db.JsonB @map("edadeal_data")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  id          String     @id @default(uuid())
+  gtin        String     @unique
+  productId   String?    @map("product_id")
+  product     Product?   @relation(fields: [productId], references: [id])
+  crptData    Json?      @map("crpt_data") @db.JsonB
+  edadealData Json?      @map("edadeal_data") @db.JsonB
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
   scanUnits   ScanUnit[]
 
   @@index([productId])
+  @@map("product_codes")
 }
 
 model ScanUnit {
-  @@map("scan_units")
-
   id              String      @id @default(uuid())
   productCodeId   String      @map("product_code_id")
   productCode     ProductCode @relation(fields: [productCodeId], references: [id])
   chestnyZnakCode String?     @unique @map("chestny_znak_code")
-  chestnyZnakData Json?       @db.JsonB @map("chestny_znak_data")
+  chestnyZnakData Json?       @map("chestny_znak_data") @db.JsonB
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
   @@index([productCodeId, createdAt])
+  @@map("scan_units")
+}
+
+model ShuttleTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  situation String
+  enabled   Boolean  @default(true)
+  template  String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([situation, enabled])
+  @@map("shuttle_templates")
 }

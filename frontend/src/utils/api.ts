@@ -26,6 +26,73 @@ export interface ProductCode {
   edadealData: unknown | null
 }
 
+export const SCAN_SITUATIONS = [
+  'processing',
+  'ean_registered',
+  'chestny_znak_paired',
+  'chestny_znak_registered_without_ean',
+  'duplicate_chestny_znak',
+  'unsupported',
+  'error'
+] as const
+
+export type ScanSituation = typeof SCAN_SITUATIONS[number]
+
+export interface ShuttleTemplate {
+  id: string
+  name: string
+  situation: ScanSituation
+  enabled: boolean
+  template: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ShuttleTemplateInput {
+  name: string
+  situation: ScanSituation
+  enabled?: boolean
+  template: string
+}
+
+export const SHUTTLE_TEMPLATES_QUERY_KEY = 'shuttle-templates'
+
+export function getShuttleTemplates(): Promise<ShuttleTemplate[]> {
+  return request('/shuttle-templates')
+}
+
+export function createShuttleTemplate(data: ShuttleTemplateInput): Promise<ShuttleTemplate> {
+  return request('/shuttle-templates', {
+    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST'
+  })
+}
+
+export function updateShuttleTemplate(id: string, data: Partial<ShuttleTemplateInput> & { enabled?: boolean }): Promise<ShuttleTemplate> {
+  return request(`/shuttle-templates/${id}`, {
+    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'PATCH'
+  })
+}
+
+export function enableOnlyShuttleTemplate(id: string): Promise<ShuttleTemplate> {
+  return request(`/shuttle-templates/${id}/only`, { method: 'PATCH' })
+}
+
+export function deleteShuttleTemplate(id: string): Promise<void> {
+  return request(`/shuttle-templates/${id}`, { method: 'DELETE' })
+}
+
+export function setAllShuttleTemplatesEnabled(enabled: boolean): Promise<void> {
+  return request('/shuttle-templates/state', {
+    body: JSON.stringify({ enabled }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'PATCH'
+  })
+}
+
 export function getItems(): Promise<Item[]> {
   return request('/products')
 }

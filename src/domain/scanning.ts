@@ -1,5 +1,17 @@
 export type ScanCodeType = 'ean13' | 'chestny_znak'
 
+export const scanSituations = [
+  'processing',
+  'ean_registered',
+  'chestny_znak_paired',
+  'chestny_znak_registered_without_ean',
+  'duplicate_chestny_znak',
+  'unsupported',
+  'error'
+] as const
+
+export type ScanSituation = typeof scanSituations[number]
+
 export type ScanInput = {
   adapterId: string
   codeType: ScanCodeType
@@ -13,9 +25,70 @@ export type ScanResult =
   | { type: 'ean_registered'; scanUnitId: string; message: 'scan_chestny_znak' }
   | { type: 'chestny_znak_paired'; scanUnitId: string; message: 'saved' }
   | { type: 'chestny_znak_registered_without_ean'; scanUnitId: string; message: 'saved_without_ean' }
-  | { type: 'duplicate_chestny_znak'; message: 'already_added' }
-  | { type: 'unsupported'; code: 'UNSUPPORTED_CODE'; msg: string }
+  | { type: 'duplicate_chestny_znak'; scanUnitId: string; message: 'already_added' }
+  | { type: 'unsupported'; code: 'UNSUPPORTED_CODE'; msg?: string }
   | { type: 'error'; code: string; msg: string; cause?: unknown }
+
+export type StatsPeriod = {
+  alcohol: number
+  caffeine: number
+  volume: number
+}
+
+export type ScanStats = {
+  day: StatsPeriod
+  month: StatsPeriod
+  total: StatsPeriod
+}
+
+export type ScanTemplateProduct = {
+  id: string
+  brand: string
+  name: string
+  volume: number
+  caffeine: number
+  alcohol: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type ScanTemplateProductCode = {
+  id: string
+  gtin: string
+  productId: string | null
+  crptData: unknown
+  edadealData: unknown
+  createdAt: string
+  updatedAt: string
+  product: ScanTemplateProduct | null
+}
+
+export type ScanTemplateScanUnit = {
+  id: string
+  productCodeId: string
+  chestnyZnakCode: string | null
+  chestnyZnakData: unknown
+  createdAt: string
+  updatedAt: string
+  productCode: ScanTemplateProductCode
+}
+
+export type ScanTemplateContext = {
+  situation: ScanSituation
+  scan: {
+    adapterId: string
+    codeType: ScanCodeType | null
+    rawCode: string
+    receivedAt: string
+    correlationId?: string
+  }
+  result: Record<string, unknown>
+  scanUnit: ScanTemplateScanUnit | null
+  stats: {
+    before: ScanStats | null
+    after: ScanStats | null
+  }
+}
 
 export type ParsedChestnyZnak = {
   code: string

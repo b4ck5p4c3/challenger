@@ -8,12 +8,14 @@ import z from 'zod'
 import { CrptAPI } from './api/crpt'
 import { EdadealAPI } from './api/edadeal'
 import { ScanService } from './application/scan-service'
-import { escapeSpecialCharacters } from './domain/scanning'
+import { getScanStats } from './application/statistics'
+import { escapeSpecialCharacters, scanSituations, type ScanTemplateScanUnit } from './domain/scanning'
 import { ShuttleAdapter } from './shuttle/adapter'
 import { getEnvironment } from './environment'
 import { PrismaClient } from './generated/prisma/client'
 import { getLogger } from './logger'
 import { ShuttleClient, ShuttleServer } from './shuttle/protocol'
+import { ShuttleTemplateRenderer } from './shuttle/template-renderer'
 
 const logger = getLogger()
 const environment = getEnvironment()
@@ -23,7 +25,14 @@ const scanService = new ScanService(prisma, crptAPI, new EdadealAPI())
 const shuttleEndpoint = environment.SHUTTLE_CLIENT_HOST
   ? new ShuttleClient(environment.SHUTTLE_CLIENT_HOST, environment.SHUTTLE_CLIENT_PORT)
   : new ShuttleServer(environment.SHUTTLE_SERVER_PORT)
-const shuttleAdapter = new ShuttleAdapter(shuttleEndpoint, input => scanService.process(input))
+const shuttleTemplateRenderer = new ShuttleTemplateRenderer(prisma)
+const shuttleAdapter = new ShuttleAdapter(
+  shuttleEndpoint,
+  input => scanService.process(input),
+  () => getScanStats(prisma),
+  readScanUnitForTemplate,
+  (shuttle, context) => shuttleTemplateRenderer.send(shuttle, context)
+)
 
 const app = express()
 app.use(cors())
@@ -52,6 +61,137 @@ app.post('/api/scans', async (request, response) => {
     receivedAt: new Date(),
     ...(parsed.data.correlationId === undefined ? {} : { correlationId: parsed.data.correlationId })
   }))
+})
+
+const shuttleTemplateCreate = z.object({
+  enabled: z.boolean().default(true),
+  name: z.string().trim().min(1),
+  situation: z.enum(scanSituations),
+  template: z.string().min(1)
+})
+
+const shuttleTemplatePatch = shuttleTemplateCreate.partial()
+const shuttleTemplateState = z.object({ enabled: z.boolean() })
+
+app.get('/api/shuttle-templates', async (_, response) => {
+  response.json(await prisma.shuttleTemplate.findMany({
+    orderBy: [{ situation: 'asc' }, { createdAt: 'asc' }]
+  }))
+})
+
+app.post('/api/shuttle-templates', async (request, response) => {
+  const parsed = shuttleTemplateCreate.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_SHUTTLE_TEMPLATE', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  try {
+    const template = await prisma.shuttleTemplate.create({ data: parsed.data })
+    response.status(201).json(template)
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.patch('/api/shuttle-templates/state', async (request, response) => {
+  const parsed = shuttleTemplateState.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_SHUTTLE_TEMPLATE_STATE', msg: parsed.error.message, type: 'error' })
+    return
+  }
+  if (!parsed.data.enabled) {
+    response.status(409).json({ code: 'ALL_SHUTTLE_TEMPLATES_DISABLED', msg: 'At least one Shuttle template must remain enabled', type: 'error' })
+    return
+  }
+
+  try {
+    await prisma.shuttleTemplate.updateMany({ data: { enabled: true } })
+    response.status(204).end()
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.patch('/api/shuttle-templates/:id/only', async (request, response) => {
+  try {
+    const existing = await prisma.shuttleTemplate.findUnique({ where: { id: request.params.id } })
+    if (!existing) {
+      response.status(404).json({ code: 'SHUTTLE_TEMPLATE_NOT_FOUND', msg: 'Shuttle template was not found', type: 'error' })
+      return
+    }
+
+    const updated = await prisma.$transaction(async transaction => {
+      await transaction.shuttleTemplate.updateMany({
+        data: { enabled: false },
+        where: { situation: existing.situation }
+      })
+      return await transaction.shuttleTemplate.update({
+        data: { enabled: true },
+        where: { id: existing.id }
+      })
+    })
+    response.json(updated)
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.patch('/api/shuttle-templates/:id', async (request, response) => {
+  const parsed = shuttleTemplatePatch.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ code: 'INVALID_SHUTTLE_TEMPLATE', msg: parsed.error.message, type: 'error' })
+    return
+  }
+
+  try {
+    const existing = await prisma.shuttleTemplate.findUnique({ where: { id: request.params.id } })
+    if (!existing) {
+      response.status(404).json({ code: 'SHUTTLE_TEMPLATE_NOT_FOUND', msg: 'Shuttle template was not found', type: 'error' })
+      return
+    }
+    if (existing.enabled && parsed.data.enabled === false) {
+      const enabledCount = await prisma.shuttleTemplate.count({
+        where: { enabled: true, situation: existing.situation }
+      })
+      if (enabledCount <= 1) {
+        response.status(409).json({ code: 'ALL_SHUTTLE_TEMPLATES_DISABLED', msg: 'At least one Shuttle template must remain enabled', type: 'error' })
+        return
+      }
+    }
+
+    const updated = await prisma.shuttleTemplate.update({
+      data: {
+        ...(parsed.data.enabled === undefined ? {} : { enabled: parsed.data.enabled }),
+        ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
+        ...(parsed.data.situation === undefined ? {} : { situation: parsed.data.situation }),
+        ...(parsed.data.template === undefined ? {} : { template: parsed.data.template })
+      },
+      where: { id: existing.id }
+    })
+    response.json(updated)
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
+})
+
+app.delete('/api/shuttle-templates/:id', async (request, response) => {
+  try {
+    const existing = await prisma.shuttleTemplate.findUnique({ where: { id: request.params.id } })
+    if (!existing) {
+      response.status(404).json({ code: 'SHUTTLE_TEMPLATE_NOT_FOUND', msg: 'Shuttle template was not found', type: 'error' })
+      return
+    }
+    await prisma.shuttleTemplate.delete({ where: { id: existing.id } })
+    response.status(204).end()
+  } catch (error) {
+    logger.error(error)
+    response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
+  }
 })
 
 app.get('/api/products', async (_, response) => {
@@ -377,12 +517,7 @@ app.post('/api/scan-units/:id/crpt-data', async (request, response) => {
 
 app.get('/api/stats', async (_, response) => {
   try {
-    const [day, month, total] = await Promise.all([
-      calculateStats(new Date(Date.now() - 24 * 60 * 60 * 1000)),
-      calculateStats(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
-      calculateStats()
-    ])
-    response.json({ day, month, total })
+    response.json(await getScanStats(prisma))
   } catch (error) {
     logger.error(error)
     response.status(500).json({ code: 'DATABASE_FAILED', msg: String(error), type: 'error' })
@@ -414,22 +549,70 @@ function serializeProduct (product: { id: string; brand: string; name: string; v
   }
 }
 
-async function calculateStats (since?: Date) {
-  const rows = await prisma.$queryRaw<Array<{ alcohol: string | null; caffeine: string | null; volume: string | null }>>`
-    SELECT
-      COALESCE(sum(products.volume), 0) AS "volume",
-      COALESCE(sum(products.alcohol), 0) AS "alcohol",
-      COALESCE(sum(products.caffeine), 0) AS "caffeine"
-    FROM scan_units
-    JOIN product_codes ON product_codes.id = scan_units.product_code_id
-    JOIN products ON products.id = product_codes.product_id
-    WHERE (${since ?? null}::timestamp IS NULL OR scan_units.created_at >= ${since ?? null})
-  `
-  const row = rows[0]
+async function readScanUnitForTemplate (id: string): Promise<ScanTemplateScanUnit | null> {
+  const scanUnit = await prisma.scanUnit.findUnique({
+    include: { productCode: { include: { product: true } } },
+    where: { id }
+  })
+  return scanUnit ? serializeScanUnit(scanUnit) : null
+}
+
+function serializeScanUnit (scanUnit: {
+  id: string
+  productCodeId: string
+  chestnyZnakCode: string | null
+  chestnyZnakData: unknown
+  createdAt: Date
+  updatedAt: Date
+  productCode: {
+    id: string
+    gtin: string
+    productId: string | null
+    crptData: unknown
+    edadealData: unknown
+    createdAt: Date
+    updatedAt: Date
+    product: {
+      id: string
+      brand: string
+      name: string
+      volume: Decimal
+      caffeine: Decimal
+      alcohol: Decimal
+      createdAt: Date
+      updatedAt: Date
+    } | null
+  }
+}): ScanTemplateScanUnit {
+  const product = scanUnit.productCode.product
   return {
-    alcohol: Number(row?.alcohol ?? 0),
-    caffeine: Number(row?.caffeine ?? 0),
-    volume: Number(row?.volume ?? 0)
+    chestnyZnakCode: scanUnit.chestnyZnakCode,
+    chestnyZnakData: scanUnit.chestnyZnakData,
+    createdAt: scanUnit.createdAt.toISOString(),
+    id: scanUnit.id,
+    productCode: {
+      createdAt: scanUnit.productCode.createdAt.toISOString(),
+      crptData: scanUnit.productCode.crptData,
+      edadealData: scanUnit.productCode.edadealData,
+      gtin: scanUnit.productCode.gtin,
+      id: scanUnit.productCode.id,
+      product: product
+        ? {
+          alcohol: product.alcohol.toNumber(),
+          brand: product.brand,
+          caffeine: product.caffeine.toNumber(),
+          createdAt: product.createdAt.toISOString(),
+          id: product.id,
+          name: product.name,
+          updatedAt: product.updatedAt.toISOString(),
+          volume: product.volume.toNumber()
+        }
+        : null,
+      productId: scanUnit.productCode.productId,
+      updatedAt: scanUnit.productCode.updatedAt.toISOString()
+    },
+    productCodeId: scanUnit.productCodeId,
+    updatedAt: scanUnit.updatedAt.toISOString()
   }
 }
 

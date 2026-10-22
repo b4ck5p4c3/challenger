@@ -7,14 +7,13 @@
     "frontend"
   ],
   "scripts": {
-    "start": "bun src/main.ts",
-    "scml": "bun src/scml-main.ts",
+    "start": "tsx src/main.ts",
+    "scml": "tsx src/scml-main.ts",
     "dev": "bun run --watch src/main.ts -vvv",
     "build": "bun build --compile --minify --sourcemap ./src/main.ts --outfile ./dist/challenger",
     "build:scml": "bun build --compile --minify --sourcemap ./src/scml-main.ts --outfile ./dist/scml",
     "lint": "eslint src",
     "check": "tsc --noEmit",
-
     "dev:all": "bun --filter '*' dev",
     "dev:fe": "bun --filter frontend dev",
     "build:fe": "bun --filter frontend build"
@@ -32,6 +31,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "gtin": "^1.0.2",
+    "handlebars": "^4.7.10",
     "mitt": "^3.0.1",
     "openai": "^7.27.0",
     "pg": "^8.23.1",

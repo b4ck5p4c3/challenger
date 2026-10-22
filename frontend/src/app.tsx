@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { ItemEditPage } from './pages/item-edit'
 import { ScannerPage } from './pages/scanner'
 import { RecordPage } from './pages/record'
-import { CodesPage } from './pages/codes'
+import { TemplatesPage } from './pages/templates'
 import { getStats, STATS_QUERY_KEY, type StatsPeriod } from './utils/api'
 
 const queryClient = new QueryClient()
@@ -20,7 +20,8 @@ export function App() {
         <main className={styles.main}>
           <Routes>
             <Route path="/scan" element={<ScannerPage />} />
-            <Route path="/codes" element={<CodesPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="/codes" element={<Navigate to="/templates" replace={true} />} />
             <Route path="/records/:collection/:id" element={<RecordPage />} />
             <Route path={"/"} element={<Navigate to={"/history"} replace={true} />}/>
             <Route path={"/items"} element={<ItemsPage />}/>
@@ -61,7 +62,7 @@ function Header() {
       </div>
       <div className={styles.headerMenu}>
         <Link to="/scan">Scan</Link>
-        <Link to="/codes">GTIN</Link>
+        <Link to="/templates">Templates</Link>
         <Link to={"/items"}>Items</Link>
         <Link to={"/history"}>History</Link>
       </div>
