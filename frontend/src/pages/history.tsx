@@ -281,7 +281,7 @@ export function HistoryPage() {
             <td>{new Date(item.createdAt).toLocaleString()}</td>
             <td><Link to={`/records/product-codes/${item.productCode.id}`}>{item.productCode.gtin}</Link></td>
             <td>{item.productCode.product ? `${item.productCode.product.brand} - ${item.productCode.product.name}` : <span className={styles.unassigned}>Unassigned</span>}</td>
-            <td><Link to={`/records/scan-units/${item.id}`}>{item.chestnyZnakCode ?? 'No Chestny Znak'}</Link></td>
+            <td className={styles.crpt}><Link to={`/records/scan-units/${item.id}`}>{item.chestnyZnakCode ?? 'No Chestny Znak'}</Link></td>
             <td className={styles.actions}>
               <Button onClick={() => startAttach(item)} disabled={busy}>Edit</Button>
               <Button onClick={async () => {

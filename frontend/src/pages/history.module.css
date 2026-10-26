@@ -102,6 +102,10 @@
   border-left: none;
 }
 
+.crpt {
+  max-width: 200px;
+}
+
 .actions {
   vertical-align: top;
 }
