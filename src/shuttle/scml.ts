@@ -362,6 +362,7 @@ function decodePlainText (source: string): string {
   let result = ''
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index]
+    if (character === '\r' || character === '\n') continue
     if (character !== '\\') {
       result += character
       continue
