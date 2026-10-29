@@ -107,9 +107,9 @@ export class ScanService {
       }
     })
     return {
-      message: 'saved_without_ean',
+      message: 'saved',
       scanUnitId: scanUnit.id,
-      type: 'chestny_znak_registered_without_ean'
+      type: 'chestny_znak_registered'
     }
   }
 

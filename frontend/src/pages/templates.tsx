@@ -17,7 +17,7 @@ import styles from './templates.module.css'
 
 const situationLabels: Record<ScanSituation, string> = {
   chestny_znak_paired: 'Chestny Znak paired',
-  chestny_znak_registered_without_ean: 'Chestny Znak without EAN',
+  chestny_znak_registered: 'Chestny Znak registered',
   duplicate_chestny_znak: 'Duplicate Chestny Znak',
   ean_registered: 'EAN registered',
   error: 'Processing error',

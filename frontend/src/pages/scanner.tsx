@@ -9,7 +9,7 @@ function resultText(result: ScanResult): string {
   switch (result.type) {
     case 'ean_registered': return 'Добавлена без ЧестногоЗнака! ☆⌒(>。<) Пожалуйста, сканируйте ЧестныйЗнак'
     case 'chestny_znak_paired': return 'ЧестныйЗнак добавлен к ранее отсканированной банке (❤ω❤)'
-    case 'chestny_znak_registered_without_ean': return 'Банка добавлена ( ◕▿◕ )'
+    case 'chestny_znak_registered': return 'Банка добавлена ( ◕▿◕ )'
     case 'duplicate_chestny_znak': return 'Эта банка уже была добавлена o(TヘTo)'
     case 'unsupported':
     case 'error': return result.msg

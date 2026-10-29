@@ -7,6 +7,7 @@
     "frontend"
   ],
   "scripts": {
+    "db:seed": "bun prisma/seed.ts",
     "start": "tsx src/main.ts",
     "scml": "tsx src/scml-main.ts",
     "dev": "bun run --watch src/main.ts -vvv",

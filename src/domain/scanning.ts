@@ -4,7 +4,7 @@ export const scanSituations = [
   'processing',
   'ean_registered',
   'chestny_znak_paired',
-  'chestny_znak_registered_without_ean',
+  'chestny_znak_registered',
   'duplicate_chestny_znak',
   'unsupported',
   'error'
@@ -24,7 +24,7 @@ export type ScanResult =
   | { type: 'processing' }
   | { type: 'ean_registered'; scanUnitId: string; message: 'scan_chestny_znak' }
   | { type: 'chestny_znak_paired'; scanUnitId: string; message: 'saved' }
-  | { type: 'chestny_znak_registered_without_ean'; scanUnitId: string; message: 'saved_without_ean' }
+  | { type: 'chestny_znak_registered'; scanUnitId: string; message: 'saved' }
   | { type: 'duplicate_chestny_znak'; scanUnitId: string; message: 'already_added' }
   | { type: 'unsupported'; code: 'UNSUPPORTED_CODE'; msg?: string }
   | { type: 'error'; code: string; msg: string; cause?: unknown }

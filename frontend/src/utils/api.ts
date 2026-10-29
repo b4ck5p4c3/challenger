@@ -30,7 +30,7 @@ export const SCAN_SITUATIONS = [
   'processing',
   'ean_registered',
   'chestny_znak_paired',
-  'chestny_znak_registered_without_ean',
+  'chestny_znak_registered',
   'duplicate_chestny_znak',
   'unsupported',
   'error'
@@ -216,7 +216,7 @@ export async function doAiMagicOnItem(id: string): Promise<ItemData> {
 }
 
 export type ScanResult =
-  | { type: 'ean_registered' | 'chestny_znak_paired' | 'chestny_znak_registered_without_ean'; scanUnitId: string }
+  | { type: 'ean_registered' | 'chestny_znak_paired' | 'chestny_znak_registered'; scanUnitId: string }
   | { type: 'duplicate_chestny_znak' }
   | { type: 'unsupported' | 'error'; msg: string }
 
