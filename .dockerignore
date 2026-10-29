@@ -1,0 +1,16 @@
+.git
+.github
+.pnpm-store
+.vscode
+.idea
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.cache
+**/.env*
+**/*.log
+**/*.tsbuildinfo
+src/generated
+prisma/src/generated
+**/*.md
