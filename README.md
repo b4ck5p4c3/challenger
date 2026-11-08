@@ -20,6 +20,7 @@ EOF
 # 〜〜(／￣▽)／　〜ф
 bunx prisma generate
 bunx prisma db push
+bun run db:seed
 # :3c
 bun run build:fe
 bun run start
